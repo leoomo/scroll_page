@@ -41,8 +41,9 @@ async function fetchState() {
         stateText.textContent = STATE_LABELS[data.state] || data.state.toUpperCase();
 
         if (data.head_offset !== null && data.head_offset !== undefined) {
-            const clamped = Math.max(-0.1, Math.min(0.1, data.head_offset));
-            const percent = ((clamped + 0.1) / 0.2) * 100;
+            const range = 0.05;
+            const clamped = Math.max(-range, Math.min(range, -data.head_offset));
+            const percent = ((clamped + range) / (range * 2)) * 100;
             offsetMarker.style.top = `${percent}%`;
             offsetMarker.classList.remove('hidden');
         } else {

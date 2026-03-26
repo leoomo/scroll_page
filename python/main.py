@@ -179,9 +179,9 @@ def tracking_loop():
             action = state.head_state.update(offset_y)
 
             if action == "scroll_down":
-                state.scroll_controller.scroll_down()
-            elif action == "scroll_up":
                 state.scroll_controller.scroll_up()
+            elif action == "scroll_up":
+                state.scroll_controller.scroll_down()
 
         with state.lock:
             pass  # state is already updated on the attributes directly
