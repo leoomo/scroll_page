@@ -123,7 +123,7 @@ def tracking_loop():
             continue
 
         gaze_point = state.eye_tracker.process(frame)
-        state.raw_gaze_y = state.eye_tracker.get_last_raw_y()
+        state.raw_gaze_y = state.eye_tracker.get_last_offset_y()
 
         if gaze_point is None:
             state.gaze_state.no_face_detected()
