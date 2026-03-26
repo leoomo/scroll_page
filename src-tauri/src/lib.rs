@@ -8,17 +8,13 @@ pub struct AppState {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct GazeData {
-    pub raw_x: Option<f64>,
-    pub raw_y: Option<f64>,
-    pub screen_y: Option<f64>,
-    pub zone: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct StateData {
+pub struct HeadStateData {
     pub state: String,
-    pub gaze_point: Option<(f64, f64)>,
+    pub head_offset: Option<f64>,
+    pub calibrated: bool,
+    pub neutral_y: Option<f64>,
+    pub enabled: bool,
+    pub face_detected: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -36,19 +32,7 @@ pub struct Config {
 }
 
 #[tauri::command]
-async fn get_gaze() -> Result<GazeData, String> {
-    let client = reqwest::Client::new();
-    let response = client
-        .get(format!("{}/api/gaze", PYTHON_API_BASE))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    response.json::<GazeData>().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn get_state() -> Result<StateData, String> {
+async fn get_state() -> Result<HeadStateData, String> {
     let client = reqwest::Client::new();
     let response = client
         .get(format!("{}/api/state", PYTHON_API_BASE))
@@ -56,31 +40,7 @@ async fn get_state() -> Result<StateData, String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    response.json::<StateData>().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn calibrate_top() -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{}/api/calibrate/top", PYTHON_API_BASE))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    response.json().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn calibrate_bottom() -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{}/api/calibrate/bottom", PYTHON_API_BASE))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    response.json().await.map_err(|e| e.to_string())
+    response.json::<HeadStateData>().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -128,6 +88,50 @@ async fn set_config(config_data: Config) -> Result<serde_json::Value, String> {
     response.json().await.map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn calibrate_neutral() -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/api/calibrate/neutral", PYTHON_API_BASE))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn calibrate_neutral_stop() -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/api/calibrate/neutral/stop", PYTHON_API_BASE))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_calibration() -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/api/calibration/save", PYTHON_API_BASE))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn reset_calibration() -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/api/calibration/reset", PYTHON_API_BASE))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -143,14 +147,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_gaze,
             get_state,
-            calibrate_top,
-            calibrate_bottom,
             get_config,
             set_config,
             set_enabled,
             check_connection,
+            calibrate_neutral,
+            calibrate_neutral_stop,
+            save_calibration,
+            reset_calibration,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
