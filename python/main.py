@@ -28,8 +28,7 @@ def save_calibration():
     """保存校准数据到文件"""
     if state.eye_tracker:
         data = {
-            "top_y": state.eye_tracker._top_offset_y,
-            "bottom_y": state.eye_tracker._bottom_offset_y,
+            "center_y": state.eye_tracker._center_y,
         }
         with open(CALIBRATION_FILE, 'w') as f:
             json.dump(data, f, indent=2)
@@ -43,11 +42,9 @@ def load_calibration():
         try:
             with open(CALIBRATION_FILE, 'r') as f:
                 data = json.load(f)
-            if data.get("top_y") is not None:
-                state.eye_tracker.calibrate_top(data["top_y"])
-            if data.get("bottom_y") is not None:
-                state.eye_tracker.calibrate_bottom(data["bottom_y"])
-            print(f"[Calibration] Loaded from file: top={data.get('top_y')}, bottom={data.get('bottom_y')}")
+            if data.get("center_y") is not None:
+                state.eye_tracker.calibrate_center(data["center_y"])
+            print(f"[Calibration] Loaded: center={state.eye_tracker._center_y:.6f}")
             return True
         except Exception as e:
             print(f"[Calibration] Failed to load: {e}")
@@ -216,13 +213,14 @@ def _get_zone(gaze_point, gaze_state):
 async def handle_state(request):
     """GET /api/state - 获取状态机状态"""
     with state.lock:
+        gp = state.gaze_point
         data = {
             "state": state.state,
-            "gaze_point": state.gaze_point,
-            "iris_y": state.raw_gaze_y,  # 原始 iris_y 值
+            "gaze_point": gp,
+            "iris_y": state.raw_gaze_y,
+            "deviation": gp[1] if gp else None,
             "calibration": {
-                "top_y": state.eye_tracker._top_offset_y,
-                "bottom_y": state.eye_tracker._bottom_offset_y,
+                "baseline": getattr(state.eye_tracker, '_baseline', None),
                 "calibrated": state.eye_tracker.is_calibrated(),
             }
         }
