@@ -24,7 +24,7 @@ class TestConfig:
             assert c.scroll_distance == 30
             assert c.scroll_interval_ms == 200
             assert c.detection_confidence == 0.5
-            assert c.up_scroll_enabled == False
+            assert c.up_scroll_enabled == True
             assert c.up_scroll_ratio == 0.10
             assert c.up_dwell_time_ms == 800
             assert c.up_scroll_distance == 30

@@ -11,7 +11,7 @@ DEFAULT_CONFIG = {
     "scroll_distance": 30,
     "scroll_interval_ms": 200,
     "detection_confidence": 0.5,
-    "up_scroll_enabled": False,
+    "up_scroll_enabled": True,
     "up_scroll_ratio": 0.10,
     "up_dwell_time_ms": 800,
     "up_scroll_distance": 30,
