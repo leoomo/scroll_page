@@ -1,8 +1,10 @@
 const API_BASE = 'http://127.0.0.1:8765';
+const WS_BASE = 'ws://127.0.0.1:8765';
 const SENSITIVITY_BASE = 0.04;
 const SENSITIVITY_STEP = 0.035 / 9;
 let calibrationTimer = null;
-let lastShiftRightTime = 0;
+let lastRightCmdTime = 0;
+let lastWsAction = null;
 
 const connectionDot = document.getElementById('connection-dot');
 const stateText = document.getElementById('state-text');
@@ -11,19 +13,29 @@ const toggleEnabled = document.getElementById('toggle-enabled');
 const btnSettings = document.getElementById('btn-settings');
 const settingsPanel = document.getElementById('settings-panel');
 
-// Double-click right Shift to toggle tracking
-document.addEventListener('keydown', async (e) => {
-    if (e.code === 'ShiftRight') {
-        const now = Date.now();
-        if (now - lastShiftRightTime < 350) {
-            e.preventDefault();
-            toggleEnabled.checked = !toggleEnabled.checked;
-            const endpoint = toggleEnabled.checked ? '/api/enable' : '/api/disable';
-            await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
-        }
-        lastShiftRightTime = now;
+// Global shortcut: double-press right Command to toggle tracking
+import { register } from '@tauri-apps/plugin-global-shortcut';
+
+let shortcutRegistered = false;
+async function registerToggleShortcut() {
+    if (shortcutRegistered) return;
+    try {
+        await register('Command+R', async () => {
+            const now = Date.now();
+            if (now - lastRightCmdTime < 400) {
+                toggleEnabled.checked = !toggleEnabled.checked;
+                const endpoint = toggleEnabled.checked ? '/api/enable' : '/api/disable';
+                await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
+            }
+            lastRightCmdTime = now;
+        });
+        shortcutRegistered = true;
+    } catch (e) {
+        console.warn('Global shortcut failed:', e);
     }
-});
+}
+registerToggleShortcut();
+
 const scrollDistanceSlider = document.getElementById('scroll-distance');
 const scrollDistanceVal = document.getElementById('scroll-distance-val');
 const sensitivitySlider = document.getElementById('sensitivity');
@@ -33,6 +45,30 @@ const calibrationOverlay = document.getElementById('calibration-overlay');
 const calibrationText = document.getElementById('calibration-text');
 const calibrationCountdown = document.getElementById('calibration-countdown');
 const calibrationResult = document.getElementById('calibration-result');
+
+// WebSocket for real-time scroll direction flash
+let ws = null;
+function connectWs() {
+    ws = new WebSocket(`${WS_BASE}/ws`);
+    ws.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'state_update' && msg.data.action && msg.data.action !== lastWsAction) {
+                lastWsAction = msg.data.action;
+                const iframe = document.getElementById('test-article');
+                if (iframe && iframe.contentWindow) {
+                    const dir = msg.data.action.includes('down') ? 'down' : 'up';
+                    iframe.contentWindow.postMessage({ type: 'scroll', direction: dir }, '*');
+                }
+            } else if (!msg.data.action) {
+                lastWsAction = null;
+            }
+        } catch (_) {}
+    };
+    ws.onclose = () => { setTimeout(connectWs, 2000); };
+    ws.onerror = () => { ws.close(); };
+}
+connectWs();
 
 const STATE_LABELS = {
     idle: 'IDLE',
@@ -127,6 +163,7 @@ async function stopCalibration() {
                 if (iframe) {
                     iframe.focus();
                     iframe.contentWindow?.scrollTo({ top: 0, behavior: 'smooth' });
+                    iframe.contentWindow?.postMessage({ type: 'scroll', direction: null }, '*');
                 }
             }, 1500);
         } else {

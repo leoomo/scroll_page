@@ -8,7 +8,7 @@
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "",
     "beforeDevCommand": "",
-    "beforeBuildCommand": "cd src/web && npm run build"
+    "beforeBuildCommand": "cd src/web && npm run build && cp test-article.html ../dist/"
   },
   "app": {
     "windows": [

@@ -65,6 +65,7 @@ class AppState:
         self.enabled = True
         self.head_offset = None  # float | None
         self.face_detected = False
+        self.last_action = None  # str | None
         self.lock = threading.Lock()
         self._last_calibration_result = None
 
@@ -188,6 +189,7 @@ def tracking_loop():
             state.face_detected = True
 
             action = state.head_state.update(offset_y)
+            state.last_action = action
 
             if action == "scroll_down":
                 state.scroll_controller.scroll_up()
@@ -412,6 +414,7 @@ async def gaze_broadcaster():
                         "state": state.head_state.get_state(),
                         "head_offset": state.head_offset,
                         "face_detected": state.face_detected,
+                        "action": state.last_action,
                     }
                 }
             await ws_manager.broadcast(data)
