@@ -169,6 +169,10 @@ class EyeTracker:
         """获取上一次处理的原始 y 值（用于校准）"""
         return getattr(self, '_last_raw_y', None)
 
+    def get_last_offset_y(self) -> Optional[float]:
+        """获取上一次处理的原始 offset_y（用于校准）"""
+        return getattr(self, '_last_raw_offset_y', None)
+
     def close(self):
         """关闭追踪器"""
         self._detector.close()
