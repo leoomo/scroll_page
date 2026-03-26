@@ -1,275 +1,157 @@
-// EyeScroll Web UI
-const API_BASE = 'http://127.0.0.1:8765/api';
+const API_BASE = 'http://127.0.0.1:8765';
+let calibrationTimer = null;
 
-let lastFrameTime = 0;
-let pendingCalibration = null;
-let isCollecting = false;
+const connectionDot = document.getElementById('connection-dot');
+const stateText = document.getElementById('state-text');
+const offsetMarker = document.getElementById('offset-marker');
+const btnCalibrate = document.getElementById('btn-calibrate');
+const toggleEnabled = document.getElementById('toggle-enabled');
+const btnSettings = document.getElementById('btn-settings');
+const settingsPanel = document.getElementById('settings-panel');
+const scrollDistanceSlider = document.getElementById('scroll-distance');
+const scrollDistanceVal = document.getElementById('scroll-distance-val');
+const sensitivitySlider = document.getElementById('sensitivity');
+const sensitivityVal = document.getElementById('sensitivity-val');
+const btnResetCalibration = document.getElementById('btn-reset-calibration');
+const calibrationOverlay = document.getElementById('calibration-overlay');
+const calibrationText = document.getElementById('calibration-text');
+const calibrationCountdown = document.getElementById('calibration-countdown');
+const calibrationResult = document.getElementById('calibration-result');
 
-const TARGET_FRAME_INTERVAL = 33;
+const STATE_LABELS = {
+    idle: 'IDLE',
+    dwelling_down: 'DWELLING',
+    dwelling_up: 'DWELLING',
+    continuous_down: 'SCROLLING',
+    continuous_up: 'SCROLLING',
+};
 
-// DOM Elements
-const gazeDot = document.getElementById('gaze-dot');
-const irisYVal = document.getElementById('iris-y-val');
-const screenYEl = document.getElementById('screen-y');
-const stateEl = document.getElementById('state');
-const calibratedStatus = document.getElementById('calibrated-status');
-const statusDot = document.getElementById('status-dot');
-const statusText = document.getElementById('status-text');
-const calibrateTopBtn = document.getElementById('calibrate-top');
-const calibrateBottomBtn = document.getElementById('calibrate-bottom');
-const calibrationStatus = document.getElementById('calibration-status');
-const saveCalibrationBtn = document.getElementById('save-calibration');
-const resetCalibrationBtn = document.getElementById('reset-calibration');
-
-// Dialog elements
-const confirmDialog = document.getElementById('confirm-dialog');
-const confirmMessage = document.getElementById('confirm-message');
-const confirmYesBtn = document.getElementById('confirm-yes');
-const confirmNoBtn = document.getElementById('confirm-no');
-
-// Zone detection
-function getZone(screenY) {
-  if (screenY < 0.1) return 'Up';
-  if (screenY > 0.9) return 'Down';
-  return 'Reading';
-}
-
-// Update connection status
-function setConnected(connected) {
-  if (statusDot) statusDot.className = connected ? 'connected' : '';
-  if (statusText) statusText.textContent = connected ? 'Connected' : 'Disconnected';
-}
-
-// Hide confirm dialog
-function hideConfirm() {
-  confirmDialog.classList.add('hidden');
-  pendingCalibration = null;
-  isCollecting = false;
-}
-
-// Update gaze display
-function updateGazeDisplay(data) {
-  if (!data) return;
-
-  const screenY = data.gaze_point?.[1] ?? 0.5;
-  const rawX = data.gaze_point?.[0] ?? 0.5;
-  const zone = getZone(screenY);
-
-  if (irisYVal) irisYVal.textContent = data.iris_y?.toFixed(4) ?? '--';
-  if (screenYEl) screenYEl.textContent = screenY.toFixed(3);
-  if (stateEl) stateEl.textContent = data.state ?? '--';
-
-  // Calibration status
-  const cal = data.calibration;
-  if (calibratedStatus) {
-    if (cal?.calibrated) {
-      calibratedStatus.textContent = `${cal.top_y?.toFixed(3)} / ${cal.bottom_y?.toFixed(3)}`;
-      calibratedStatus.style.color = 'var(--accent)';
-    } else {
-      calibratedStatus.textContent = 'Not calibrated';
-      calibratedStatus.style.color = '';
-    }
-  }
-
-  // Update gaze dot
-  if (gazeDot) {
-    gazeDot.style.left = `${rawX * 100}%`;
-    gazeDot.style.top = `${screenY * 100}%`;
-    gazeDot.setAttribute('data-zone', zone);
-  }
-}
-
-// Fetch state
 async function fetchState() {
-  try {
-    const res = await fetch(`${API_BASE}/state`);
-    const data = await res.json();
-    setConnected(true);
-    updateGazeDisplay(data);
-  } catch (err) {
-    setConnected(false);
-  }
-}
+    try {
+        const res = await fetch(`${API_BASE}/api/state`);
+        const data = await res.json();
 
-// Step 1: Show preparation dialog
-function showPrepareDialog(target) {
-  pendingCalibration = { target };
-  const label = target === 'top' ? 'Look Up' : 'Look Down';
+        connectionDot.className = 'status-dot';
+        if (data.face_detected) {
+            connectionDot.classList.add('connected');
+        } else {
+            connectionDot.classList.add('disconnected');
+        }
 
-  confirmMessage.innerHTML = `
-    <strong>${label}</strong><br>
-    <span style="color: var(--text-secondary)">Look ${target === 'top' ? 'up' : 'down'}, click Start and hold for 2s</span>
-  `;
-  confirmYesBtn.style.display = '';
-  confirmYesBtn.textContent = 'Start';
-  confirmNoBtn.textContent = 'Cancel';
-  confirmDialog.classList.remove('hidden');
-}
+        stateText.textContent = STATE_LABELS[data.state] || data.state.toUpperCase();
 
-// Step 2: Start collection
-async function startCollection() {
-  if (!pendingCalibration) return;
-
-  const target = pendingCalibration.target;
-  const label = target === 'top' ? 'Look Up' : 'Look Down';
-  const direction = target === 'top' ? 'Looking up' : 'Looking down';
-
-  isCollecting = true;
-
-  confirmMessage.innerHTML = `
-    <span class="collecting"></span>
-    <strong>${label}</strong><br>
-    <span style="color: var(--text-secondary)">${direction}, hold steady... <span id="countdown">2s</span></span>
-  `;
-  confirmYesBtn.style.display = 'none';
-  confirmNoBtn.textContent = 'Cancel';
-
-  // Countdown
-  let countdown = 2;
-  const countdownEl = document.getElementById('countdown');
-  const countdownInterval = setInterval(() => {
-    countdown--;
-    if (countdownEl && countdown > 0) {
-      countdownEl.textContent = `${countdown}s`;
+        if (data.head_offset !== null && data.head_offset !== undefined) {
+            const clamped = Math.max(-0.1, Math.min(0.1, data.head_offset));
+            const percent = ((clamped + 0.1) / 0.2) * 100;
+            offsetMarker.style.top = `${percent}%`;
+            offsetMarker.classList.remove('hidden');
+        } else {
+            offsetMarker.classList.add('hidden');
+        }
+    } catch (e) {
+        connectionDot.className = 'status-dot error';
     }
-  }, 1000);
 
-  try {
-    // Start collection
-    await fetch(`${API_BASE}/calibrate/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target })
+    requestAnimationFrame(fetchState);
+}
+
+async function startCalibration() {
+    calibrationOverlay.classList.remove('hidden');
+    calibrationText.classList.remove('hidden');
+    calibrationText.textContent = 'Align your gaze here';
+    calibrationCountdown.classList.remove('hidden');
+    calibrationCountdown.textContent = '3';
+    calibrationResult.classList.add('hidden');
+
+    try {
+        await fetch(`${API_BASE}/api/calibrate/neutral`, { method: 'POST' });
+
+        let remaining = 3;
+        calibrationTimer = setInterval(async () => {
+            remaining--;
+            calibrationCountdown.textContent = remaining;
+            if (remaining <= 0) {
+                clearInterval(calibrationTimer);
+                calibrationTimer = null;
+                await stopCalibration();
+            }
+        }, 1000);
+    } catch (e) {
+        calibrationText.textContent = 'Failed to start';
+        setTimeout(() => calibrationOverlay.classList.add('hidden'), 2000);
+    }
+}
+
+async function stopCalibration() {
+    try {
+        const res = await fetch(`${API_BASE}/api/calibrate/neutral/stop`, { method: 'POST' });
+        const result = await res.json();
+
+        calibrationCountdown.classList.add('hidden');
+
+        if (result.success) {
+            await fetch(`${API_BASE}/api/calibration/save`, { method: 'POST' });
+
+            calibrationText.classList.add('hidden');
+            calibrationResult.classList.remove('hidden');
+            calibrationResult.textContent = `Calibrated (${result.sample_count} samples)`;
+
+            connectionDot.classList.add('flash');
+            setTimeout(() => {
+                connectionDot.classList.remove('flash');
+                calibrationOverlay.classList.add('hidden');
+                calibrationResult.classList.add('hidden');
+            }, 1500);
+        } else {
+            calibrationText.textContent = result.error || 'Calibration failed';
+        }
+    } catch (e) {
+        calibrationText.textContent = 'Error';
+    }
+}
+
+btnSettings.addEventListener('click', () => {
+    settingsPanel.classList.toggle('hidden');
+});
+
+toggleEnabled.addEventListener('change', async () => {
+    const endpoint = toggleEnabled.checked ? '/api/enable' : '/api/disable';
+    await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
+});
+
+scrollDistanceSlider.addEventListener('input', () => {
+    scrollDistanceVal.textContent = scrollDistanceSlider.value;
+});
+
+scrollDistanceSlider.addEventListener('change', async () => {
+    await fetch(`${API_BASE}/api/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scroll_distance: parseInt(scrollDistanceSlider.value) }),
     });
+});
 
-    // Wait 2 seconds
-    await new Promise(r => setTimeout(r, 2000));
+sensitivitySlider.addEventListener('input', () => {
+    sensitivityVal.textContent = sensitivitySlider.value;
+});
 
-    // Stop and get result
-    const res = await fetch(`${API_BASE}/calibrate/stop`, { method: 'POST' });
-    const result = await res.json();
+sensitivitySlider.addEventListener('change', async () => {
+    const val = parseInt(sensitivitySlider.value);
+    const threshold = parseFloat((0.06 - (val - 1) * (0.05 / 9)).toFixed(3));
+    await fetch(`${API_BASE}/api/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            head_down_threshold: threshold,
+            head_up_threshold: -threshold,
+        }),
+    });
+});
 
-    clearInterval(countdownInterval);
+btnResetCalibration.addEventListener('click', async () => {
+    await fetch(`${API_BASE}/api/calibration/reset`, { method: 'POST' });
+});
 
-    if (result.success) {
-      pendingCalibration = { target, value: result.value };
-      confirmMessage.innerHTML = `
-        <strong>${label}</strong> Complete<br>
-        <span style="font-size: 0.9em; color: var(--text-secondary)">
-          iris_y = ${result.value.toFixed(4)} (${result.samples_count} samples)
-        </span>
-      `;
-      confirmYesBtn.style.display = '';
-      confirmYesBtn.textContent = 'Confirm';
-      confirmNoBtn.textContent = 'Retry';
-    } else {
-      confirmMessage.innerHTML = `<span style="color: var(--status-up)">${result.error || 'Failed'}</span>`;
-      confirmYesBtn.style.display = 'none';
-      confirmNoBtn.textContent = 'Close';
-    }
-  } catch (err) {
-    console.error('Calibration error:', err);
-    clearInterval(countdownInterval);
-    confirmMessage.innerHTML = '<span style="color: var(--status-up)">Connection error</span>';
-    confirmYesBtn.style.display = 'none';
-    confirmNoBtn.textContent = 'Close';
-  } finally {
-    isCollecting = false;
-  }
-}
+btnCalibrate.addEventListener('click', startCalibration);
 
-// Step 3: Confirm calibration
-async function confirmCalibration() {
-  if (!pendingCalibration) return;
-
-  const { target, value } = pendingCalibration;
-  const label = target === 'top' ? 'Look Up' : 'Look Down';
-
-  hideConfirm();
-  calibrationStatus.textContent = `${label} confirmed: ${value.toFixed(4)}`;
-  calibrationStatus.className = 'success';
-}
-
-// Handle dialog button clicks
-function handleYesClick() {
-  if (isCollecting) return;
-
-  if (pendingCalibration?.value !== undefined) {
-    // Step 3: Confirm the calibration
-    confirmCalibration();
-  } else {
-    // Step 2: Start collection
-    startCollection();
-  }
-}
-
-function handleNoClick() {
-  if (isCollecting) {
-    // Cancel during collection
-    hideConfirm();
-    return;
-  }
-
-  if (pendingCalibration?.value !== undefined) {
-    // Retry
-    const target = pendingCalibration.target;
-    hideConfirm();
-    showPrepareDialog(target);
-  } else {
-    // Cancel
-    hideConfirm();
-  }
-}
-
-// Save calibration to file
-async function saveCalibration() {
-  if (!saveCalibrationBtn) return;
-  saveCalibrationBtn.disabled = true;
-  try {
-    const res = await fetch(`${API_BASE}/calibration/save`, { method: 'POST' });
-    const result = await res.json();
-    calibrationStatus.textContent = result.success ? 'Saved' : (result.error || 'Failed');
-    calibrationStatus.className = result.success ? 'success' : '';
-  } catch (err) {
-    calibrationStatus.textContent = 'Save failed';
-  } finally {
-    saveCalibrationBtn.disabled = false;
-  }
-}
-
-// Reset calibration
-async function resetCalibration() {
-  if (!resetCalibrationBtn) return;
-  resetCalibrationBtn.disabled = true;
-  try {
-    const res = await fetch(`${API_BASE}/calibration/reset`, { method: 'POST' });
-    const result = await res.json();
-    calibrationStatus.textContent = result.success ? 'Reset' : (result.error || 'Failed');
-    calibrationStatus.className = '';
-  } catch (err) {
-    calibrationStatus.textContent = 'Reset failed';
-  } finally {
-    resetCalibrationBtn.disabled = false;
-  }
-}
-
-// Event listeners
-if (calibrateTopBtn) calibrateTopBtn.addEventListener('click', () => showPrepareDialog('top'));
-if (calibrateBottomBtn) calibrateBottomBtn.addEventListener('click', () => showPrepareDialog('bottom'));
-if (saveCalibrationBtn) saveCalibrationBtn.addEventListener('click', saveCalibration);
-if (resetCalibrationBtn) resetCalibrationBtn.addEventListener('click', resetCalibration);
-if (confirmYesBtn) confirmYesBtn.addEventListener('click', handleYesClick);
-if (confirmNoBtn) confirmNoBtn.addEventListener('click', handleNoClick);
-
-// Main loop
-async function mainLoop(timestamp) {
-  const elapsed = timestamp - lastFrameTime;
-  if (elapsed >= TARGET_FRAME_INTERVAL) {
-    lastFrameTime = timestamp - (elapsed % TARGET_FRAME_INTERVAL);
-    await fetchState();
-  }
-  requestAnimationFrame(mainLoop);
-}
-
-// Start
-requestAnimationFrame(mainLoop);
+requestAnimationFrame(fetchState);
