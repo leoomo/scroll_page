@@ -104,7 +104,7 @@ class EyeTracker:
         print("[校准] 已重置")
 
     def process(self, frame: np.ndarray) -> Optional[Tuple[float, float]]:
-        """处理一帧图像，检测视线位置（使用虹膜相对位移算法）"""
+        """处理一帧图像，检测视线位置"""
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
         result = self._detector.detect_for_video(mp_image, self._frame_timestamp)
         self._frame_timestamp += 33  # ~30fps
@@ -113,57 +113,43 @@ class EyeTracker:
             return None
 
         face_landmarks = result.face_landmarks[0]
-
-        # === 提取 landmarks ===
         left_iris  = face_landmarks[LEFT_IRIS_INDEX]
         right_iris = face_landmarks[RIGHT_IRIS_INDEX]
 
-        # 眼角中点（每只眼的水平中心）
-        left_eye_center  = ((face_landmarks[LEFT_EYE_OUTER].x + face_landmarks[LEFT_EYE_INNER].x) / 2,
-                             (face_landmarks[LEFT_EYE_OUTER].y + face_landmarks[LEFT_EYE_INNER].y) / 2)
-        right_eye_center = ((face_landmarks[RIGHT_EYE_INNER].x + face_landmarks[RIGHT_EYE_OUTER].x) / 2,
-                            (face_landmarks[RIGHT_EYE_INNER].y + face_landmarks[RIGHT_EYE_OUTER].y) / 2)
-
-        # 眼皮中点（垂直方向更稳定）
-        left_lid_center  = (face_landmarks[LEFT_EYE_OUTER].x,  # x 同眼角
-                            (face_landmarks[LEFT_UPPER_LID].y + face_landmarks[LEFT_LOWER_LID].y) / 2)
-        right_lid_center = (face_landmarks[RIGHT_EYE_OUTER].x,
-                            (face_landmarks[RIGHT_UPPER_LID].y + face_landmarks[RIGHT_LOWER_LID].y) / 2)
-
-        # 综合参考点（加权平均：眼角权重 0.6，眼皮权重 0.4）
-        eye_center_y = (left_eye_center[1] + right_eye_center[1]) / 2
-        lid_center_y  = (left_lid_center[1] + right_lid_center[1]) / 2
-        reference_y   = 0.6 * eye_center_y + 0.4 * lid_center_y
-
-        # 虹膜中心（Y 方向为主）
+        # 虹膜中心
         iris_y = (left_iris.y + right_iris.y) / 2
+        self._last_raw_x = (left_iris.x + right_iris.x) / 2
 
-        # 相对偏移量
-        offset_y = iris_y - reference_y
-
-        # 指数滑动平均滤波
+        # 指数滑动平均滤波（降低帧间噪声）
         if self._last_smoothed_offset_y is None:
-            self._last_smoothed_offset_y = offset_y
-        smoothed_offset_y = (
-            self._smoothing_alpha * offset_y +
+            self._last_smoothed_offset_y = iris_y
+        smoothed_y = (
+            self._smoothing_alpha * iris_y +
             (1 - self._smoothing_alpha) * self._last_smoothed_offset_y
         )
-        self._last_smoothed_offset_y = smoothed_offset_y
+        self._last_smoothed_offset_y = smoothed_y
 
-        # 存储原始 offset_y（用于校准）
-        self._last_raw_offset_y = offset_y  # 新增，供 get_last_offset_y() 使用
-
-        # raw_x 仍然用虹膜水平中心（可用于辅助判断）
-        self._last_raw_x = (left_iris.x + right_iris.x) / 2
+        # 存储用于校准
+        self._last_raw_offset_y = iris_y
 
         # 应用校准转换
         if self._calibrated and self._bottom_offset_y != self._top_offset_y:
-            screen_y = (smoothed_offset_y - self._top_offset_y) / (self._bottom_offset_y - self._top_offset_y)
+            # 计算原始范围并大幅扩展，增加中间区域的容差
+            raw_range = abs(self._bottom_offset_y - self._top_offset_y)
+            # 确保最小有效范围（越大越不灵敏）
+            min_range = 0.05  # 5% 的范围，降低灵敏度
+            effective_range = max(raw_range * 3.0, min_range)
+            center = (self._top_offset_y + self._bottom_offset_y) / 2
+            effective_top = center - effective_range / 2
+            effective_bottom = center + effective_range / 2
+
+            # 反转方向：向下看时 iris_y 增大，但屏幕坐标 y 应该增大（向下）
+            screen_y = (effective_bottom - smoothed_y) / (effective_bottom - effective_top)
             screen_y = max(0.0, min(1.0, screen_y))
             return (float(self._last_raw_x), float(screen_y))
 
-        # 未校准：返回原始平滑偏移量（范围大致在 [-0.1, 0.1]）
-        return (float(self._last_raw_x), float(smoothed_offset_y))
+        # 未校准：返回 0.5（中立位置，不触发滚动）
+        return (float(self._last_raw_x), 0.5)
 
     def get_last_raw_y(self) -> Optional[float]:
         """获取上一次处理的原始 y 值（用于校准）"""

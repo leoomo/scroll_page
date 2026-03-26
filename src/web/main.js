@@ -1,5 +1,5 @@
-// EyeScroll Web UI
-const { invoke } = window.__TAURI__.core;
+// EyeScroll Web UI - HTTP API 版本
+const API_BASE = 'http://127.0.0.1:8765/api';
 
 let trackingActive = false;
 let lastGazeData = null;
@@ -18,6 +18,16 @@ const calibrateTopBtn = document.getElementById('calibrate-top');
 const calibrateBottomBtn = document.getElementById('calibrate-bottom');
 const calibrationStatus = document.getElementById('calibration-status');
 const toggleTrackingBtn = document.getElementById('toggle-tracking');
+
+// 新增：显示 iris_y 值
+let irisYDisplay = document.getElementById('iris-y');
+if (!irisYDisplay) {
+  irisYDisplay = document.createElement('p');
+  irisYDisplay.innerHTML = 'Iris Y <span id="iris-y-val">—</span>';
+  irisYDisplay.querySelector('span').id = 'iris-y-val';
+  document.querySelector('.gaze-data').appendChild(irisYDisplay);
+}
+const irisYVal = document.getElementById('iris-y-val');
 
 // Zone labels for accessibility
 const ZONE_LABELS = {
@@ -45,20 +55,27 @@ function updateGazeDisplay(gazeData) {
   if (!gazeData) return;
 
   // Update text
-  rawX.textContent = gazeData.raw_x?.toFixed(3) ?? '—';
-  rawY.textContent = gazeData.raw_y?.toFixed(3) ?? '—';
-  screenYEl.textContent = gazeData.screen_y?.toFixed(3) ?? '—';
+  rawX.textContent = gazeData.gaze_point?.[0]?.toFixed(3) ?? '—';
+  screenYEl.textContent = gazeData.gaze_point?.[1]?.toFixed(3) ?? '—';
   stateEl.textContent = gazeData.state ?? '—';
 
+  // 显示 iris_y 原始值
+  if (gazeData.iris_y !== undefined) {
+    irisYVal.textContent = gazeData.iris_y.toFixed(4);
+  }
+
   // Update gaze dot position
-  if (gazeData.raw_x !== null && gazeData.screen_y !== null) {
-    const x = gazeData.raw_x * 100;
-    const y = gazeData.screen_y * 100;
+  if (gazeData.gaze_point) {
+    const x = gazeData.gaze_point[0] * 100;
+    const y = gazeData.gaze_point[1] * 100;
     gazeDot.style.left = `${x}%`;
     gazeDot.style.top = `${y}%`;
 
-    // Update zone label for accessibility
-    const zone = gazeData.zone || 'none';
+    // Determine zone
+    let zone = 'reading';
+    if (y > 80) zone = 'down';
+    else if (y < 10) zone = 'up';
+
     gazeDot.setAttribute('data-zone', ZONE_LABELS[zone] || '—');
 
     // Color based on zone
@@ -81,61 +98,90 @@ function updateGazeDisplay(gazeData) {
 // Fetch and display gaze data
 async function fetchGazeData() {
   try {
-    const [gaze, stateData] = await Promise.all([
-      invoke('get_gaze'),
-      invoke('get_state')
-    ]);
+    const response = await fetch(`${API_BASE}/state`);
+    const data = await response.json();
     setConnected(true);
-
-    const combined = {
-      ...gaze,
-      state: stateData?.state
-    };
-    updateGazeDisplay(combined);
-    lastGazeData = combined;
+    updateGazeDisplay(data);
+    lastGazeData = data;
   } catch (error) {
     console.error('Failed to fetch gaze:', error);
     setConnected(false);
   }
 }
 
-// Check connection
-async function checkConnection() {
-  try {
-    const connected = await invoke('check_connection');
-    setConnected(connected);
-  } catch (error) {
-    setConnected(false);
-  }
-}
-
-// Calibrate top
+// Calibrate top - 采集 2 秒后取稳定值
 calibrateTopBtn.addEventListener('click', async () => {
   try {
-    const result = await invoke('calibrate_top');
+    calibrateTopBtn.disabled = true;
+    calibrateTopBtn.textContent = '采集中... (2秒)';
+    calibrationStatus.textContent = '请保持向上看...';
+    calibrationStatus.classList.remove('success');
+
+    // 开始采集
+    await fetch(`${API_BASE}/calibrate/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: 'top' })
+    });
+
+    // 等待 2 秒
+    await new Promise(r => setTimeout(r, 2000));
+
+    // 停止采集并获取结果
+    const response = await fetch(`${API_BASE}/calibrate/stop`, { method: 'POST' });
+    const result = await response.json();
+
     if (result.success) {
-      calibrationStatus.textContent = `Top calibrated: ${result.top_y?.toFixed(3)}`;
+      calibrationStatus.textContent = `Top: iris_y = ${result.value.toFixed(4)} (${result.samples_count} samples)`;
       calibrationStatus.classList.add('success');
+    } else {
+      calibrationStatus.textContent = 'Calibration failed: ' + (result.error || 'Unknown error');
     }
   } catch (error) {
     console.error('Calibrate top failed:', error);
     calibrationStatus.textContent = 'Calibration failed';
     calibrationStatus.classList.remove('success');
+  } finally {
+    calibrateTopBtn.disabled = false;
+    calibrateTopBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/></svg>Look at Camera`;
   }
 });
 
-// Calibrate bottom
+// Calibrate bottom - 采集 2 秒后取稳定值
 calibrateBottomBtn.addEventListener('click', async () => {
   try {
-    const result = await invoke('calibrate_bottom');
+    calibrateBottomBtn.disabled = true;
+    calibrateBottomBtn.textContent = '采集中... (2秒)';
+    calibrationStatus.textContent = '请保持向下看...';
+    calibrationStatus.classList.remove('success');
+
+    // 开始采集
+    await fetch(`${API_BASE}/calibrate/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: 'bottom' })
+    });
+
+    // 等待 2 秒
+    await new Promise(r => setTimeout(r, 2000));
+
+    // 停止采集并获取结果
+    const response = await fetch(`${API_BASE}/calibrate/stop`, { method: 'POST' });
+    const result = await response.json();
+
     if (result.success) {
-      calibrationStatus.textContent = `Bottom calibrated: ${result.bottom_y?.toFixed(3)}`;
+      calibrationStatus.textContent = `Bottom: iris_y = ${result.value.toFixed(4)} (${result.samples_count} samples)`;
       calibrationStatus.classList.add('success');
+    } else {
+      calibrationStatus.textContent = 'Calibration failed: ' + (result.error || 'Unknown error');
     }
   } catch (error) {
     console.error('Calibrate bottom failed:', error);
     calibrationStatus.textContent = 'Calibration failed';
     calibrationStatus.classList.remove('success');
+  } finally {
+    calibrateBottomBtn.disabled = false;
+    calibrateBottomBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>Look at Screen Bottom`;
   }
 });
 
@@ -143,7 +189,11 @@ calibrateBottomBtn.addEventListener('click', async () => {
 toggleTrackingBtn.addEventListener('click', async () => {
   try {
     trackingActive = !trackingActive;
-    await invoke('set_enabled', { enabled: trackingActive });
+    const response = await fetch(`${API_BASE}/enabled`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: trackingActive })
+    });
     toggleTrackingBtn.textContent = trackingActive ? 'Stop Tracking' : 'Start Tracking';
     toggleTrackingBtn.classList.toggle('active', trackingActive);
   } catch (error) {
@@ -151,78 +201,8 @@ toggleTrackingBtn.addEventListener('click', async () => {
   }
 });
 
-// Load config from backend and update sliders
-async function loadConfig() {
-  try {
-    const cfg = await invoke('get_config');
-    document.getElementById('dwell-time').value = cfg.dwell_time_ms;
-    document.getElementById('dwell-value').textContent = `${cfg.dwell_time_ms}ms`;
-    document.getElementById('zone-ratio').value = cfg.scroll_zone_ratio * 100;
-    document.getElementById('zone-ratio-value').textContent = `${Math.round(cfg.scroll_zone_ratio * 100)}%`;
-    document.getElementById('up-dwell-time').value = cfg.up_dwell_time_ms;
-    document.getElementById('up-dwell-value').textContent = `${cfg.up_dwell_time_ms}ms`;
-    document.getElementById('up-zone-ratio').value = cfg.up_scroll_ratio * 100;
-    document.getElementById('up-zone-ratio-value').textContent = `${Math.round(cfg.up_scroll_ratio * 100)}%`;
-    document.getElementById('enable-down').checked = cfg.up_scroll_enabled !== undefined ? cfg.up_scroll_enabled : true;
-    document.getElementById('enable-up').checked = cfg.up_scroll_enabled;
-  } catch (error) {
-    console.error('Failed to load config:', error);
-  }
-}
-
-// Save config to backend
-async function saveConfig() {
-  try {
-    const cfg = {
-      dwell_time_ms: parseInt(document.getElementById('dwell-time').value),
-      scroll_zone_ratio: parseInt(document.getElementById('zone-ratio').value) / 100,
-      up_dwell_time_ms: parseInt(document.getElementById('up-dwell-time').value),
-      up_scroll_ratio: parseInt(document.getElementById('up-zone-ratio').value) / 100,
-      up_scroll_enabled: document.getElementById('enable-up').checked
-    };
-    await invoke('set_config', { configData: cfg });
-  } catch (error) {
-    console.error('Failed to save config:', error);
-  }
-}
-
-// Debounce helper
-function debounce(fn, delay) {
-  let timeout;
-  return (...args) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => fn(...args), delay);
-  };
-}
-
-// Slider value updates with display and config persistence
-const debouncedSaveConfig = debounce(saveConfig, 500);
-
-document.getElementById('dwell-time').addEventListener('input', (e) => {
-  document.getElementById('dwell-value').textContent = `${e.target.value}ms`;
-  debouncedSaveConfig();
-});
-
-document.getElementById('zone-ratio').addEventListener('input', (e) => {
-  document.getElementById('zone-ratio-value').textContent = `${e.target.value}%`;
-  debouncedSaveConfig();
-});
-
-document.getElementById('up-dwell-time').addEventListener('input', (e) => {
-  document.getElementById('up-dwell-value').textContent = `${e.target.value}ms`;
-  debouncedSaveConfig();
-});
-
-document.getElementById('up-zone-ratio').addEventListener('input', (e) => {
-  document.getElementById('up-zone-ratio-value').textContent = `${e.target.value}%`;
-  debouncedSaveConfig();
-});
-
-document.getElementById('enable-up').addEventListener('change', debouncedSaveConfig);
-
 // Main loop using requestAnimationFrame
 async function mainLoop(timestamp) {
-  // Throttle to ~30fps
   const elapsed = timestamp - lastFrameTime;
   if (elapsed >= TARGET_FRAME_INTERVAL) {
     lastFrameTime = timestamp - (elapsed % TARGET_FRAME_INTERVAL);
@@ -232,6 +212,4 @@ async function mainLoop(timestamp) {
 }
 
 // Start
-checkConnection();
-loadConfig();
 requestAnimationFrame(mainLoop);

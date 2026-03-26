@@ -18,7 +18,7 @@ from core.camera import Camera
 from core.eye_tracker import EyeTracker
 from core.gaze_state import GazeStateMachine
 from core.scroll_controller import ScrollController
-from config import config
+from config import config, DEFAULT_CONFIG
 
 
 # 全局状态
@@ -125,6 +125,10 @@ def tracking_loop():
         gaze_point = state.eye_tracker.process(frame)
         state.raw_gaze_y = state.eye_tracker.get_last_offset_y()
 
+        # 采集校准样本
+        if calibration_target is not None and state.raw_gaze_y is not None:
+            calibration_samples.append(state.raw_gaze_y)
+
         if gaze_point is None:
             state.gaze_state.no_face_detected()
         else:
@@ -180,12 +184,68 @@ async def handle_state(request):
         data = {
             "state": state.state,
             "gaze_point": state.gaze_point,
+            "iris_y": state.raw_gaze_y,  # 原始 iris_y 值
+            "calibration": {
+                "top_y": state.eye_tracker._top_offset_y,
+                "bottom_y": state.eye_tracker._bottom_offset_y,
+                "calibrated": state.eye_tracker.is_calibrated(),
+            }
         }
     return data
 
 
+# 校准采样缓冲区
+calibration_samples = []
+calibration_target = None  # 'top', 'bottom', or None
+
+
+async def handle_calibrate_start(request):
+    """POST /api/calibrate/start - 开始采集校准样本"""
+    global calibration_samples, calibration_target
+    try:
+        body = await request.json()
+        calibration_target = body.get('target')  # 'top' or 'bottom'
+        calibration_samples = []
+        return {"success": True, "message": f"Started collecting {calibration_target} samples"}
+    except:
+        calibration_samples = []
+        calibration_target = None
+        return {"error": "Invalid request"}
+
+
+async def handle_calibrate_stop(request):
+    """POST /api/calibrate/stop - 停止采集并计算最稳定值"""
+    global calibration_samples, calibration_target
+    if not calibration_samples or calibration_target is None:
+        return {"error": "No samples collected"}
+
+    # 计算最稳定值：取中间 50% 的平均值
+    sorted_samples = sorted(calibration_samples)
+    n = len(sorted_samples)
+    start = n // 4
+    end = n * 3 // 4
+    stable_samples = sorted_samples[start:end]
+    stable_value = sum(stable_samples) / len(stable_samples)
+
+    # 应用校准
+    if calibration_target == 'top':
+        state.eye_tracker.calibrate_top(stable_value)
+    elif calibration_target == 'bottom':
+        state.eye_tracker.calibrate_bottom(stable_value)
+
+    result = {
+        "success": True,
+        "target": calibration_target,
+        "value": stable_value,
+        "samples_count": len(calibration_samples)
+    }
+    calibration_samples = []
+    calibration_target = None
+    return result
+
+
 async def handle_calibrate_top(request):
-    """POST /api/calibrate/top - 校准顶部"""
+    """POST /api/calibrate/top - 校准顶部（立即取当前值）"""
     raw_y = state.raw_gaze_y
     if raw_y is None:
         return {"error": "No gaze detected"}
@@ -194,7 +254,7 @@ async def handle_calibrate_top(request):
 
 
 async def handle_calibrate_bottom(request):
-    """POST /api/calibrate/bottom - 校准底部"""
+    """POST /api/calibrate/bottom - 校准底部（立即取当前值）"""
     raw_y = state.raw_gaze_y
     if raw_y is None:
         return {"error": "No gaze detected"}
@@ -358,6 +418,16 @@ async def handle_request(reader, writer):
             content = json.dumps(data).encode()
         elif path == '/api/calibrate/bottom':
             data = await handle_calibrate_bottom(None)
+            content = json.dumps(data).encode()
+        elif path == '/api/calibrate/start':
+            content_length = int(headers.get('content-length', 0))
+            body = await reader.read(content_length) if content_length > 0 else b'{}'
+            class FakeRequest:
+                async def json(self): return json.loads(body.decode())
+            data = await handle_calibrate_start(FakeRequest())
+            content = json.dumps(data).encode()
+        elif path == '/api/calibrate/stop':
+            data = await handle_calibrate_stop(None)
             content = json.dumps(data).encode()
         elif path == '/api/config':
             if method == 'GET':
