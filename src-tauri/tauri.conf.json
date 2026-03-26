@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.eyesroll.app",
   "build": {
-    "frontendDist": "../src/web",
-    "devUrl": "http://localhost:8765",
-    "beforeDevCommand": "echo 'Python backend handles dev'",
-    "beforeBuildCommand": "echo 'Python backend handles build'"
+    "frontendDist": "../src/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "cd ../src/web && npm run dev",
+    "beforeBuildCommand": "cd ../src/web && npm run build"
   },
   "app": {
     "windows": [
