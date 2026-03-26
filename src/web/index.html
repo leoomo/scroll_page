@@ -9,7 +9,13 @@
 <body>
   <div id="app">
     <header>
-      <h1>👁 EyeScroll</h1>
+      <h1>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        EyeScroll
+      </h1>
       <div id="connection-status">
         <span id="status-dot" class="disconnected"></span>
         <span id="status-text">Disconnected</span>
@@ -20,49 +26,72 @@
       <section id="gaze-viz">
         <h2>Gaze Position</h2>
         <div class="screen-preview">
-          <div class="zone zone-up">↑ Up Zone</div>
-          <div class="gaze-indicator" id="gaze-dot"></div>
-          <div class="zone zone-reading">📖 Reading Zone</div>
-          <div class="zone zone-down">↓ Down Zone</div>
+          <div class="zone zone-up">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+            Up
+          </div>
+          <div class="zone zone-reading">Reading</div>
+          <div class="zone zone-down">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12l7 7 7-7"/>
+            </svg>
+            Down
+          </div>
+          <div class="gaze-indicator" id="gaze-dot" data-zone="—" tabindex="0"></div>
         </div>
         <div class="gaze-data">
-          <p>Raw: (<span id="raw-x">-</span>, <span id="raw-y">-</span>)</p>
-          <p>Screen Y: <span id="screen-y">-</span></p>
-          <p>Zone: <span id="zone">-</span></p>
-          <p>State: <span id="state">-</span></p>
+          <p>Raw <span id="raw-x">—</span></p>
+          <p>Raw Y <span id="raw-y">—</span></p>
+          <p>Screen <span id="screen-y">—</span></p>
+          <p>State <span id="state">—</span></p>
         </div>
       </section>
 
       <section id="controls">
+        <h2>Controls</h2>
         <div class="control-group">
           <h3>Down Scroll</h3>
-          <label>
+          <label class="checkbox-label">
             <input type="checkbox" id="enable-down" checked>
             Enable
           </label>
           <div class="slider-group">
-            <label>Dwell Time: <span id="dwell-value">500</span>ms</label>
-            <input type="range" id="dwell-time" min="200" max="1500" value="500">
+            <div class="slider-header">
+              <span>Dwell Time</span>
+              <span id="dwell-value">500ms</span>
+            </div>
+            <input type="range" id="dwell-time" min="200" max="1500" value="500" step="50">
           </div>
           <div class="slider-group">
-            <label>Zone Ratio: <span id="zone-ratio-value">20</span>%</label>
-            <input type="range" id="zone-ratio" min="10" max="40" value="20">
+            <div class="slider-header">
+              <span>Zone Ratio</span>
+              <span id="zone-ratio-value">20%</span>
+            </div>
+            <input type="range" id="zone-ratio" min="10" max="40" value="20" step="1">
           </div>
         </div>
 
         <div class="control-group">
           <h3>Up Scroll</h3>
-          <label>
+          <label class="checkbox-label">
             <input type="checkbox" id="enable-up" checked>
             Enable
           </label>
           <div class="slider-group">
-            <label>Dwell Time: <span id="up-dwell-value">800</span>ms</label>
-            <input type="range" id="up-dwell-time" min="300" max="2000" value="800">
+            <div class="slider-header">
+              <span>Dwell Time</span>
+              <span id="up-dwell-value">800ms</span>
+            </div>
+            <input type="range" id="up-dwell-time" min="300" max="2000" value="800" step="50">
           </div>
           <div class="slider-group">
-            <label>Zone Ratio: <span id="up-zone-ratio-value">10</span>%</label>
-            <input type="range" id="up-zone-ratio" min="5" max="30" value="10">
+            <div class="slider-header">
+              <span>Zone Ratio</span>
+              <span id="up-zone-ratio-value">10%</span>
+            </div>
+            <input type="range" id="up-zone-ratio" min="5" max="30" value="10" step="1">
           </div>
         </div>
       </section>
@@ -71,13 +100,20 @@
         <h2>Calibration</h2>
         <div class="calibration-steps">
           <button id="calibrate-top" class="btn btn-primary">
-            1. Look at Camera, Click Here
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+            </svg>
+            Look at Camera
           </button>
           <button id="calibrate-bottom" class="btn btn-secondary">
-            2. Look at Screen Bottom, Click Here
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12l7 7 7-7"/>
+            </svg>
+            Look at Screen Bottom
           </button>
         </div>
-        <p id="calibration-status">Not calibrated</p>
+        <p id="calibration-status"></p>
       </section>
 
       <section id="actions">
@@ -88,7 +124,7 @@
     </main>
 
     <footer>
-      <p>EyeScroll v0.1.0 - Eye Tracking Scroll App</p>
+      <p>EyeScroll v0.1.0</p>
     </footer>
   </div>
 

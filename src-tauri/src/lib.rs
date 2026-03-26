@@ -116,6 +116,18 @@ async fn check_connection() -> Result<bool, String> {
     }
 }
 
+#[tauri::command]
+async fn set_config(config_data: Config) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let response = client
+        .put(format!("{}/api/config", PYTHON_API_BASE))
+        .json(&config_data)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -136,6 +148,7 @@ pub fn run() {
             calibrate_top,
             calibrate_bottom,
             get_config,
+            set_config,
             set_enabled,
             check_connection,
         ])

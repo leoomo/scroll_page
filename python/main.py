@@ -220,8 +220,14 @@ async def handle_config_get(request):
 
 async def handle_config_put(request):
     """PUT /api/config - 更新配置"""
-    # TODO: 实现配置更新
-    return {"success": True}
+    try:
+        body = await request.json()
+        for key, value in body.items():
+            if hasattr(config, key):
+                config.set(key, value)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 async def handle_enable(request):
@@ -358,7 +364,18 @@ async def handle_request(reader, writer):
                 data = await handle_config_get(None)
                 content = json.dumps(data).encode()
             elif method == 'PUT':
-                content = b'{"success": true}'
+                # 读取请求体
+                content_length = int(headers.get('content-length', 0))
+                body = await reader.read(content_length) if content_length > 0 else b'{}'
+                try:
+                    updates = json.loads(body.decode())
+                    for key, value in updates.items():
+                        if key in DEFAULT_CONFIG:
+                            config.set(key, value)
+                    content = b'{"success": true}'
+                except Exception as e:
+                    status = b'HTTP/1.1 400 Bad Request'
+                    content = json.dumps({"error": str(e)}).encode()
         elif path == '/api/enable':
             data = await handle_enable(None)
             content = json.dumps(data).encode()
