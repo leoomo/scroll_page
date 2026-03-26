@@ -7,3 +7,8 @@ __pycache__/
 *.egg-info/
 .models/
 uv.lock
+src/web/node_modules/
+src/web/dist/
+src-tauri/node_modules/
+src-tauri/package-lock.json
+package-lock.json

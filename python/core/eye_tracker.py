@@ -42,12 +42,10 @@ class EyeTracker:
         self.confidence_threshold = confidence_threshold
         self._frame_timestamp = 0
 
-        # 校准参数
-        self._calibrated = False
-
-        # 新的校准参数（存储 offset_y 而非 raw_y）
-        self._top_offset_y = None    # 向上看时的 offset_y
-        self._bottom_offset_y = None  # 向下看时的 offset_y
+        # 默认校准参数（已校准的值）
+        self._calibrated = True
+        self._top_offset_y = 0.7515    # 向上看时的 iris_y
+        self._bottom_offset_y = 0.7605  # 向下看时的 iris_y
 
         # 指数滑动平均参数
         self._smoothing_alpha = 0.3   # 越小越平滑
@@ -94,14 +92,15 @@ class EyeTracker:
         return self._calibrated
 
     def reset_calibration(self):
-        """重置校准"""
-        self._calibrated = False
-        self._top_offset_y = None
-        self._bottom_offset_y = None
-        self._top_gaze_y = None
-        self._bottom_gaze_y = None
+        """重置校准到默认值"""
+        # 默认校准值（从 calibration.json 保存的值）
+        self._top_offset_y = 0.7514852444330852
+        self._bottom_offset_y = 0.7605235079924265
+        self._top_gaze_y = self._top_offset_y
+        self._bottom_gaze_y = self._bottom_offset_y
+        self._calibrated = True
         self._last_smoothed_offset_y = None
-        print("[校准] 已重置")
+        print(f"[校准] 已重置到默认值: top={self._top_offset_y:.4f}, bottom={self._bottom_offset_y:.4f}")
 
     def process(self, frame: np.ndarray) -> Optional[Tuple[float, float]]:
         """处理一帧图像，检测视线位置"""

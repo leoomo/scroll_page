@@ -20,6 +20,39 @@ from core.gaze_state import GazeStateMachine
 from core.scroll_controller import ScrollController
 from config import config, DEFAULT_CONFIG
 
+# 校准数据文件
+CALIBRATION_FILE = Path(__file__).parent / "calibration.json"
+
+
+def save_calibration():
+    """保存校准数据到文件"""
+    if state.eye_tracker:
+        data = {
+            "top_y": state.eye_tracker._top_offset_y,
+            "bottom_y": state.eye_tracker._bottom_offset_y,
+        }
+        with open(CALIBRATION_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
+        return True
+    return False
+
+
+def load_calibration():
+    """从文件加载校准数据"""
+    if CALIBRATION_FILE.exists() and state.eye_tracker:
+        try:
+            with open(CALIBRATION_FILE, 'r') as f:
+                data = json.load(f)
+            if data.get("top_y") is not None:
+                state.eye_tracker.calibrate_top(data["top_y"])
+            if data.get("bottom_y") is not None:
+                state.eye_tracker.calibrate_bottom(data["bottom_y"])
+            print(f"[Calibration] Loaded from file: top={data.get('top_y')}, bottom={data.get('bottom_y')}")
+            return True
+        except Exception as e:
+            print(f"[Calibration] Failed to load: {e}")
+    return False
+
 
 # 全局状态
 class AppState:
@@ -99,6 +132,8 @@ def initialize():
             up_scroll_distance=config.up_scroll_distance,
             up_scroll_interval_ms=config.up_scroll_interval_ms,
         )
+        # 加载保存的校准数据
+        load_calibration()
         state.running = True
         return True
     except Exception as e:
@@ -244,6 +279,30 @@ async def handle_calibrate_stop(request):
     return result
 
 
+async def handle_calibration_save(request):
+    """POST /api/calibration/save - 保存校准数据"""
+    if save_calibration():
+        return {"success": True, "message": "Calibration saved"}
+    return {"success": False, "error": "No calibration to save"}
+
+
+async def handle_calibration_load(request):
+    """POST /api/calibration/load - 加载校准数据"""
+    if load_calibration():
+        return {"success": True, "message": "Calibration loaded"}
+    return {"success": False, "error": "No calibration file found"}
+
+
+async def handle_calibration_reset(request):
+    """POST /api/calibration/reset - 重置到保存的默认值"""
+    if load_calibration():
+        return {"success": True, "message": "Reset to saved calibration"}
+    # 如果没有保存的文件，才清空
+    if state.eye_tracker:
+        state.eye_tracker.reset_calibration()
+    return {"success": True, "message": "Reset to factory defaults (no saved calibration)"}
+
+
 async def handle_calibrate_top(request):
     """POST /api/calibrate/top - 校准顶部（立即取当前值）"""
     raw_y = state.raw_gaze_y
@@ -304,6 +363,22 @@ async def handle_disable(request):
     if state.gaze_state:
         state.gaze_state.reset()
     return {"success": True}
+
+
+async def handle_set_enabled(request):
+    """POST /api/enabled - 设置启用状态"""
+    try:
+        body = await request.json()
+        enabled = body.get('enabled', True)
+        state.enabled = enabled
+        if not enabled:
+            if state.scroll_controller:
+                state.scroll_controller.stop()
+            if state.gaze_state:
+                state.gaze_state.reset()
+        return {"success": True, "enabled": state.enabled}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # ==================== WebSocket ====================
@@ -429,6 +504,15 @@ async def handle_request(reader, writer):
         elif path == '/api/calibrate/stop':
             data = await handle_calibrate_stop(None)
             content = json.dumps(data).encode()
+        elif path == '/api/calibration/save':
+            data = await handle_calibration_save(None)
+            content = json.dumps(data).encode()
+        elif path == '/api/calibration/load':
+            data = await handle_calibration_load(None)
+            content = json.dumps(data).encode()
+        elif path == '/api/calibration/reset':
+            data = await handle_calibration_reset(None)
+            content = json.dumps(data).encode()
         elif path == '/api/config':
             if method == 'GET':
                 data = await handle_config_get(None)
@@ -451,6 +535,13 @@ async def handle_request(reader, writer):
             content = json.dumps(data).encode()
         elif path == '/api/disable':
             data = await handle_disable(None)
+            content = json.dumps(data).encode()
+        elif path == '/api/enabled':
+            content_length = int(headers.get('content-length', 0))
+            body = await reader.read(content_length) if content_length > 0 else b'{}'
+            class FakeRequest:
+                async def json(self): return json.loads(body.decode())
+            data = await handle_set_enabled(FakeRequest())
             content = json.dumps(data).encode()
         else:
             status = b'HTTP/1.1 404 Not Found'

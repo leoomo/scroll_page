@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,42 +17,45 @@
         EyeScroll
       </h1>
       <div id="connection-status">
-        <span id="status-dot" class="disconnected"></span>
-        <span id="status-text">Disconnected</span>
+        <span id="status-dot"></span>
+        <span id="status-text">Connecting...</span>
       </div>
     </header>
 
     <main>
+      <!-- Left column: Visualization -->
       <section id="gaze-viz">
-        <h2>Gaze Position</h2>
+        <h2>Gaze Tracking</h2>
         <div class="screen-preview">
           <div class="zone zone-up">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 19V5M5 12l7-7 7 7"/>
             </svg>
-            Up
+            Scroll Up
           </div>
-          <div class="zone zone-reading">Reading</div>
+          <div class="zone zone-reading">Reading Zone</div>
           <div class="zone zone-down">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 5v14M5 12l7 7 7-7"/>
             </svg>
-            Down
+            Scroll Down
           </div>
-          <div class="gaze-indicator" id="gaze-dot" data-zone="—" tabindex="0"></div>
+          <div class="gaze-indicator" id="gaze-dot" data-zone="Reading" tabindex="0"></div>
         </div>
         <div class="gaze-data">
-          <p>Raw <span id="raw-x">—</span></p>
-          <p>Raw Y <span id="raw-y">—</span></p>
-          <p>Screen <span id="screen-y">—</span></p>
-          <p>State <span id="state">—</span></p>
+          <p>Iris Y <span id="iris-y-val">--</span></p>
+          <p>Screen Y <span id="screen-y">--</span></p>
+          <p>State <span id="state">--</span></p>
+          <p>Calibrated <span id="calibrated-status">No</span></p>
         </div>
       </section>
 
+      <!-- Right column: Controls -->
       <section id="controls">
-        <h2>Controls</h2>
+        <h2>Settings</h2>
+
         <div class="control-group">
-          <h3>Down Scroll</h3>
+          <h3>Scroll Down</h3>
           <label class="checkbox-label">
             <input type="checkbox" id="enable-down" checked>
             Enable
@@ -66,7 +69,7 @@
           </div>
           <div class="slider-group">
             <div class="slider-header">
-              <span>Zone Ratio</span>
+              <span>Zone Size</span>
               <span id="zone-ratio-value">20%</span>
             </div>
             <input type="range" id="zone-ratio" min="10" max="40" value="20" step="1">
@@ -74,7 +77,7 @@
         </div>
 
         <div class="control-group">
-          <h3>Up Scroll</h3>
+          <h3>Scroll Up</h3>
           <label class="checkbox-label">
             <input type="checkbox" id="enable-up" checked>
             Enable
@@ -88,7 +91,7 @@
           </div>
           <div class="slider-group">
             <div class="slider-header">
-              <span>Zone Ratio</span>
+              <span>Zone Size</span>
               <span id="up-zone-ratio-value">10%</span>
             </div>
             <input type="range" id="up-zone-ratio" min="5" max="30" value="10" step="1">
@@ -96,31 +99,44 @@
         </div>
       </section>
 
+      <!-- Calibration -->
       <section id="calibration">
         <h2>Calibration</h2>
-        <div class="calibration-steps">
+        <div class="calibration-row">
           <button id="calibrate-top" class="btn btn-primary">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+              <path d="M12 19V5M5 12l7-7 7 7"/>
             </svg>
-            Look at Camera
+            Look Up
           </button>
           <button id="calibrate-bottom" class="btn btn-secondary">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 5v14M5 12l7 7 7-7"/>
             </svg>
-            Look at Screen Bottom
+            Look Down
           </button>
         </div>
         <p id="calibration-status"></p>
+        <div class="calibration-actions">
+          <button id="save-calibration" class="btn btn-small">
+            Save
+          </button>
+          <button id="reset-calibration" class="btn btn-small btn-danger">
+            Reset
+          </button>
+        </div>
       </section>
 
-      <section id="actions">
-        <button id="toggle-tracking" class="btn btn-large">
-          Start Tracking
-        </button>
-      </section>
+      <!-- Confirm Dialog -->
+      <div id="confirm-dialog" class="dialog hidden">
+        <div class="dialog-content">
+          <p id="confirm-message"></p>
+          <div class="dialog-actions">
+            <button id="confirm-yes" class="btn btn-primary">Confirm</button>
+            <button id="confirm-no" class="btn btn-secondary">Retry</button>
+          </div>
+        </div>
+      </div>
     </main>
 
     <footer>
@@ -128,7 +144,6 @@
     </footer>
   </div>
 
-  <script src="../node_modules/@tauri-apps/api/dist/api.js"></script>
   <script type="module" src="main.js"></script>
 </body>
 </html>
