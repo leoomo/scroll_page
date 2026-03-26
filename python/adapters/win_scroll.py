@@ -7,15 +7,6 @@ import ctypes
 from ctypes import windll, c_long, c_ulong
 
 
-class MSLLHOOKSTRUCT(Structure):
-    _fields_ = [
-        ("pt", c_ulong * 2),
-        ("mouseData", c_ulong),
-        ("flags", c_ulong),
-        ("time", c_long),
-    ]
-
-
 # Windows constants
 MOUSEEVENTF_WHEEL = 0x0800
 WHEEL_DELTA = 120

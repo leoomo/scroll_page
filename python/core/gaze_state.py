@@ -4,7 +4,6 @@ EyeScroll 状态机模块
 """
 import datetime
 import os
-import sys
 import time
 from typing import Optional, Tuple
 
@@ -25,7 +24,7 @@ class GazeStateMachine:
     STATE_DWELLING_UP = "dwelling_up"
     STATE_SCROLLING_UP = "scrolling_up"
 
-    # 向后兼容别名
+    # 向后兼容别名（测试代码使用）
     STATE_DWELLING = "dwelling_down"
     STATE_SCROLLING = "scrolling_down"
 
@@ -51,7 +50,6 @@ class GazeStateMachine:
         self._state = self.STATE_IDLE
         self._last_gaze_point: Optional[Tuple[float, float]] = None
         self._dwell_start_time: Optional[float] = None
-        self._in_up_zone = False  # 标记当前是否在上方区域
 
     def update_gaze(self, gaze_point: Tuple[float, float]):
         """更新视线位置"""
@@ -64,8 +62,9 @@ class GazeStateMachine:
             zone = "下方滚动区"
         elif gaze_y < self._up_threshold_y:
             zone = "上方滚动区"
-        ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        print(f"[{ts}] ({gaze_x:.2f}, {gaze_y:.2f}) -> {zone}", flush=True)
+        if DEBUG:
+            ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            print(f"[{ts}] ({gaze_x:.2f}, {gaze_y:.2f}) -> {zone}", flush=True)
 
         if self._state == self.STATE_SCROLLING_DOWN:
             if gaze_y < self._down_threshold_y:
@@ -93,13 +92,11 @@ class GazeStateMachine:
             if gaze_y > self._down_threshold_y:
                 # 进入下方滚动区
                 _debug(f"-> 进入下方滚动区 (y={gaze_y:.3f} > {self._down_threshold_y})")
-                self._in_up_zone = False
                 self._dwell_start_time = time.monotonic()
                 self._transition_to(self.STATE_DWELLING_DOWN)
             elif gaze_y < self._up_threshold_y and self._up_scroll_enabled:
                 # 进入上方滚动区
                 _debug(f"-> 进入上方滚动区 (y={gaze_y:.3f} < {self._up_threshold_y}, enabled={self._up_scroll_enabled})")
-                self._in_up_zone = True
                 self._dwell_start_time = time.monotonic()
                 self._transition_to(self.STATE_DWELLING_UP)
             else:
