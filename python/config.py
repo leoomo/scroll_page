@@ -16,6 +16,12 @@ DEFAULT_CONFIG = {
     "up_dwell_time_ms": 800,
     "up_scroll_distance": 30,
     "up_scroll_interval_ms": 200,
+    "head_down_threshold": 0.03,
+    "head_up_threshold": -0.03,
+    "head_deadzone": 0.01,
+    "head_ema_alpha": 0.15,
+    "head_dwell_time_ms": 300,
+    "head_continuous_threshold_ms": 2000,
 }
 
 CONFIG_FILE = Path.home() / ".eye_scroll" / "config.json"
