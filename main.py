@@ -27,14 +27,18 @@ class EyeScrollApp(rumps.App):
 
     STATE_TITLES = {
         GazeStateMachine.STATE_IDLE: "阅读中",
-        GazeStateMachine.STATE_DWELLING: "准备滚动...",
-        GazeStateMachine.STATE_SCROLLING: "滚动中",
+        GazeStateMachine.STATE_DWELLING_DOWN: "准备向下滚动...",
+        GazeStateMachine.STATE_SCROLLING_DOWN: "向下滚动中",
+        GazeStateMachine.STATE_DWELLING_UP: "准备向上回翻...",
+        GazeStateMachine.STATE_SCROLLING_UP: "向上回翻中",
     }
 
     STATE_ICONS = {
         GazeStateMachine.STATE_IDLE: "👁",
-        GazeStateMachine.STATE_DWELLING: "👁⏳",
-        GazeStateMachine.STATE_SCROLLING: "👁⬇",
+        GazeStateMachine.STATE_DWELLING_DOWN: "👁⏳",
+        GazeStateMachine.STATE_SCROLLING_DOWN: "👁⬇",
+        GazeStateMachine.STATE_DWELLING_UP: "👁🔼",
+        GazeStateMachine.STATE_SCROLLING_UP: "👁⬆",
     }
 
     def __init__(self):
@@ -111,10 +115,15 @@ class EyeScrollApp(rumps.App):
             self._gaze_state = GazeStateMachine(
                 dwell_time_ms=config.dwell_time_ms,
                 scroll_zone_ratio=config.scroll_zone_ratio,
+                up_scroll_enabled=config.up_scroll_enabled,
+                up_scroll_ratio=config.up_scroll_ratio,
+                up_dwell_time_ms=config.up_dwell_time_ms,
             )
             self._scroll_controller = ScrollController(
                 scroll_distance=config.scroll_distance,
                 scroll_interval_ms=config.scroll_interval_ms,
+                up_scroll_distance=config.up_scroll_distance,
+                up_scroll_interval_ms=config.up_scroll_interval_ms,
             )
             return True
         except Exception as e:
@@ -146,8 +155,10 @@ class EyeScrollApp(rumps.App):
 
             state = self._gaze_state.get_state()
 
-            if state == GazeStateMachine.STATE_SCROLLING:
-                self._scroll_controller.scroll()
+            if state == GazeStateMachine.STATE_SCROLLING_DOWN:
+                self._scroll_controller.scroll_down()
+            elif state == GazeStateMachine.STATE_SCROLLING_UP:
+                self._scroll_controller.scroll_up()
             else:
                 self._scroll_controller.stop()
 

@@ -19,17 +19,22 @@ class TestConfig:
             # 直接测试 Config 类的属性
             c = Config.__new__(Config)
             c._config = DEFAULT_CONFIG.copy()
-            assert c.scroll_zone_ratio == 0.25
+            assert c.scroll_zone_ratio == 0.20
             assert c.dwell_time_ms == 500
-            assert c.scroll_distance == 80
-            assert c.scroll_interval_ms == 100
+            assert c.scroll_distance == 30
+            assert c.scroll_interval_ms == 200
             assert c.detection_confidence == 0.5
+            assert c.up_scroll_enabled == False
+            assert c.up_scroll_ratio == 0.10
+            assert c.up_dwell_time_ms == 800
+            assert c.up_scroll_distance == 30
+            assert c.up_scroll_interval_ms == 200
 
     def test_get_returns_config_value(self):
         """get() 返回配置值"""
         c = Config.__new__(Config)
         c._config = DEFAULT_CONFIG.copy()
-        assert c.get("scroll_zone_ratio") == 0.25
+        assert c.get("scroll_zone_ratio") == 0.20
         assert c.get("nonexistent", "default") == "default"
 
     def test_set_updates_config(self):

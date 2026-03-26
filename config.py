@@ -6,11 +6,16 @@ import json
 from pathlib import Path
 
 DEFAULT_CONFIG = {
-    "scroll_zone_ratio": 0.25,
+    "scroll_zone_ratio": 0.20,
     "dwell_time_ms": 500,
     "scroll_distance": 30,
     "scroll_interval_ms": 200,
     "detection_confidence": 0.5,
+    "up_scroll_enabled": False,
+    "up_scroll_ratio": 0.10,
+    "up_dwell_time_ms": 800,
+    "up_scroll_distance": 30,
+    "up_scroll_interval_ms": 200,
 }
 
 CONFIG_FILE = Path.home() / ".eye_scroll" / "config.json"
@@ -67,6 +72,26 @@ class Config:
     @property
     def detection_confidence(self) -> float:
         return self._config["detection_confidence"]
+
+    @property
+    def up_scroll_enabled(self) -> bool:
+        return self._config["up_scroll_enabled"]
+
+    @property
+    def up_scroll_ratio(self) -> float:
+        return self._config["up_scroll_ratio"]
+
+    @property
+    def up_dwell_time_ms(self) -> int:
+        return self._config["up_dwell_time_ms"]
+
+    @property
+    def up_scroll_distance(self) -> int:
+        return self._config["up_scroll_distance"]
+
+    @property
+    def up_scroll_interval_ms(self) -> int:
+        return self._config["up_scroll_interval_ms"]
 
 
 config = Config()
