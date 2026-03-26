@@ -2,7 +2,10 @@
 EyeScroll 滚动控制模块
 跨平台滚动控制器，使用适配器模式
 """
-from .adapters import ScrollControllerImpl
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from adapters import ScrollControllerImpl
 
 
 class ScrollController:
