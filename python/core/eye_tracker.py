@@ -13,6 +13,18 @@ from mediapipe.tasks.python import vision
 LEFT_IRIS_INDEX = 468
 RIGHT_IRIS_INDEX = 473
 
+# 眼角 landmarks
+LEFT_EYE_OUTER = 33    # 左眼外角（左侧眼角）
+LEFT_EYE_INNER = 133   # 左眼内角（右侧眼角，靠近鼻子）
+RIGHT_EYE_INNER = 263  # 右眼内角（左侧眼角，靠近鼻子）
+RIGHT_EYE_OUTER = 362  # 右眼外角（右侧眼角）
+
+# 眼皮 landmarks（上/下眼皮边缘中点）
+LEFT_UPPER_LID = 159   # 左眼上眼皮左角
+LEFT_LOWER_LID = 145   # 左眼下眼皮左角
+RIGHT_UPPER_LID = 386  # 右眼上眼皮右角
+RIGHT_LOWER_LID = 23   # 右眼下眼皮右角
+
 MODEL_DIR = Path(__file__).parent.parent / ".models"
 MODEL_PATH = MODEL_DIR / "face_landmarker.task"
 
