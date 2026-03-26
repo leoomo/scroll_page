@@ -70,23 +70,25 @@ class EyeTracker:
         )
         self._detector = vision.FaceLandmarker.create_from_options(options)
 
-    def calibrate_top(self, gaze_y: float):
+    def calibrate_top(self, offset_y: float):
         """校准顶部（看向摄像头）"""
-        self._top_gaze_y = gaze_y
-        print(f"[校准] 顶部 gaze_y = {gaze_y:.3f}")
+        self._top_offset_y = offset_y
+        self._top_gaze_y = offset_y  # 兼容旧接口
+        print(f"[校准] 顶部 offset_y = {offset_y:.3f}")
         self._check_calibration()
 
-    def calibrate_bottom(self, gaze_y: float):
+    def calibrate_bottom(self, offset_y: float):
         """校准底部（看向屏幕底部）"""
-        self._bottom_gaze_y = gaze_y
-        print(f"[校准] 底部 gaze_y = {gaze_y:.3f}")
+        self._bottom_offset_y = offset_y
+        self._bottom_gaze_y = offset_y  # 兼容旧接口
+        print(f"[校准] 底部 offset_y = {offset_y:.3f}")
         self._check_calibration()
 
     def _check_calibration(self):
         """检查校准是否完成"""
-        if self._top_gaze_y is not None and self._bottom_gaze_y is not None:
+        if self._top_offset_y is not None and self._bottom_offset_y is not None:
             self._calibrated = True
-            print(f"[校准] 完成! top={self._top_gaze_y:.3f}, bottom={self._bottom_gaze_y:.3f}")
+            print(f"[校准] 完成! top_offset={self._top_offset_y:.3f}, bottom_offset={self._bottom_offset_y:.3f}")
 
     def is_calibrated(self) -> bool:
         return self._calibrated
@@ -94,8 +96,11 @@ class EyeTracker:
     def reset_calibration(self):
         """重置校准"""
         self._calibrated = False
+        self._top_offset_y = None
+        self._bottom_offset_y = None
         self._top_gaze_y = None
         self._bottom_gaze_y = None
+        self._last_smoothed_offset_y = None
         print("[校准] 已重置")
 
     def process(self, frame: np.ndarray) -> Optional[Tuple[float, float]]:
