@@ -1,7 +1,13 @@
 """
 EyeScroll - Simplified Menu Bar App
 A simple macOS menu bar application for eye-tracking scroll control.
+
+Usage:
+    python simple_main.py          # Start menu bar app
+    python simple_main.py --debug  # Start with HTTP debug server on port 8766
 """
+import argparse
+import asyncio
 import atexit
 import json
 import os
@@ -302,10 +308,88 @@ class EyeScrollApp(rumps.App):
         cleanup()
         rumps.quit()
 
+# ==================== HTTP Debug Server ====================
+
+async def handle_debug_request(reader, writer):
+    """Simple HTTP debug endpoint."""
+    request_line = await reader.readline()
+    if not request_line:
+        writer.close()
+        return
+
+    method, path, _ = request_line.decode().strip().split()
+    print(f"[Debug] {method} {path}", flush=True)
+
+    # Skip headers
+    while True:
+        line = await reader.readline()
+        if line in (b'\r\n', b'\n', b''):
+            break
+
+    try:
+        if path == '/state':
+            data = {
+                'state': state.head_state.get_state() if state.head_state else 'N/A',
+                'face_detected': state.face_detected,
+                'head_offset': state.head_offset,
+                'enabled': state.enabled,
+                'calibrated': state.head_tracker.is_calibrated() if state.head_tracker else False,
+                'last_action': state.last_action,
+            }
+            content = json.dumps(data, indent=2).encode()
+        elif path == '/enable':
+            state.enabled = True
+            show_flash("ON")
+            content = b'{"success": true}'
+        elif path == '/disable':
+            state.enabled = False
+            if state.scroll_controller:
+                state.scroll_controller.stop()
+            if state.head_state:
+                state.head_state.reset()
+            show_flash("OFF")
+            content = b'{"success": true}'
+        elif path == '/calibrate':
+            if state.head_tracker:
+                state._calibrating = True
+                state.head_tracker.start_calibration(3.0)
+            content = b'{"success": true, "status": "calibrating"}'
+        else:
+            content = b'{"error": "not found"}'
+
+        writer.write(b'HTTP/1.1 200 OK\r\n')
+        writer.write(b'Content-Type: application/json\r\n')
+        writer.write(f'Content-Length: {len(content)}\r\n'.encode())
+        writer.write(b'\r\n')
+        writer.write(content)
+    except Exception as e:
+        writer.write(b'HTTP/1.1 500 OK\r\n')
+        writer.write(b'Content-Type: application/json\r\n')
+        writer.write(f'Content-Length: {len(str(e))}\r\n'.encode())
+        writer.write(b'\r\n')
+        writer.write(str(e).encode())
+
+    await writer.drain()
+    writer.close()
+
+def run_debug_server(port=8766):
+    """Run the debug HTTP server in a background thread."""
+    async def serve():
+        server = await asyncio.start_server(handle_debug_request, '127.0.0.1', port)
+        print(f"[Debug] HTTP server started on http://127.0.0.1:{port}", flush=True)
+        async with server:
+            await server.serve_forever()
+
+    asyncio.run(serve())
+
 # ==================== Main ====================
 
 def main():
     """Main entry point."""
+    parser = argparse.ArgumentParser(description='EyeScroll - Eye-tracking scroll control')
+    parser.add_argument('--debug', action='store_true', help='Enable HTTP debug server on port 8766')
+    args = parser.parse_args()
+
     print("EyeScroll 启动中...", flush=True)
 
     # Initialize
@@ -320,11 +404,18 @@ def main():
     signal.signal(signal.SIGINT, lambda s, f: cleanup() or sys.exit(0))
     signal.signal(signal.SIGTERM, lambda s, f: cleanup() or sys.exit(0))
 
+    # Start debug server if requested
+    if args.debug:
+        debug_thread = threading.Thread(target=run_debug_server, daemon=True)
+        debug_thread.start()
+
     # Start tracking thread
     tracking_thread = threading.Thread(target=tracking_loop, daemon=True)
     tracking_thread.start()
 
     print("EyeScroll 已启动!", flush=True)
+    if args.debug:
+        print("调试服务器已启用: http://127.0.0.1:8766", flush=True)
     print("按 Cmd+Q 或点击菜单栏图标退出。", flush=True)
 
     # Run menu bar app (this blocks)
