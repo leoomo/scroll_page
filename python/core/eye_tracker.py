@@ -44,8 +44,18 @@ class EyeTracker:
 
         # 校准参数
         self._calibrated = False
-        self._top_gaze_y = None   # 看屏幕顶部时的 y 值
-        self._bottom_gaze_y = None # 看屏幕底部时的 y 值
+
+        # 新的校准参数（存储 offset_y 而非 raw_y）
+        self._top_offset_y = None    # 向上看时的 offset_y
+        self._bottom_offset_y = None  # 向下看时的 offset_y
+
+        # 指数滑动平均参数
+        self._smoothing_alpha = 0.3   # 越小越平滑
+        self._last_smoothed_offset_y = None  # 上一帧的平滑 offset_y
+
+        # 保留旧的校准变量别名以兼容外部调用（main.py 仍用 _top_gaze_y / _bottom_gaze_y）
+        self._top_gaze_y = None
+        self._bottom_gaze_y = None
 
         base_options = python.BaseOptions(
             model_asset_path=_get_model_path()
