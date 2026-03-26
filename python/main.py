@@ -9,14 +9,13 @@ import signal
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Tuple
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
 
 from core.camera import Camera
-from core.eye_tracker import EyeTracker
-from core.gaze_state import GazeStateMachine
+from core.head_tracker import HeadTracker
+from core.head_state import HeadStateMachine, STATE_IDLE
 from core.scroll_controller import ScrollController
 from config import config, DEFAULT_CONFIG
 
@@ -26,9 +25,9 @@ CALIBRATION_FILE = Path(__file__).parent / "calibration.json"
 
 def save_calibration():
     """保存校准数据到文件"""
-    if state.eye_tracker:
+    if state.head_tracker and state.head_tracker.is_calibrated():
         data = {
-            "center_y": state.eye_tracker._center_y,
+            "neutral_y": state.head_tracker.get_neutral_y(),
         }
         with open(CALIBRATION_FILE, 'w') as f:
             json.dump(data, f, indent=2)
@@ -38,13 +37,16 @@ def save_calibration():
 
 def load_calibration():
     """从文件加载校准数据"""
-    if CALIBRATION_FILE.exists() and state.eye_tracker:
+    if CALIBRATION_FILE.exists() and state.head_tracker:
         try:
             with open(CALIBRATION_FILE, 'r') as f:
                 data = json.load(f)
-            if data.get("center_y") is not None:
-                state.eye_tracker.calibrate_center(data["center_y"])
-            print(f"[Calibration] Loaded: center={state.eye_tracker._center_y:.6f}")
+            neutral_y = data.get("neutral_y")
+            if neutral_y is not None:
+                state.head_tracker._neutral_y = neutral_y
+                state.head_tracker._calibrated = True
+                state.head_tracker._smooth_offset = 0.0
+                print(f"[Calibration] Loaded: neutral_y={neutral_y:.6f}")
             return True
         except Exception as e:
             print(f"[Calibration] Failed to load: {e}")
@@ -54,16 +56,16 @@ def load_calibration():
 # 全局状态
 class AppState:
     def __init__(self):
-        self.camera: Optional[Camera] = None
-        self.eye_tracker: Optional[EyeTracker] = None
-        self.gaze_state: Optional[GazeStateMachine] = None
-        self.scroll_controller: Optional[ScrollController] = None
+        self.camera = None
+        self.head_tracker = None
+        self.head_state = None
+        self.scroll_controller = None
         self.running = False
         self.enabled = True
-        self.gaze_point: Optional[Tuple[float, float]] = None
-        self.raw_gaze_y: Optional[float] = None
-        self.state = GazeStateMachine.STATE_IDLE
+        self.head_offset = None  # float | None
+        self.face_detected = False
         self.lock = threading.Lock()
+        self._last_calibration_result = None
 
 
 state = AppState()
@@ -87,9 +89,9 @@ def cleanup():
         except Exception as e:
             print(f"[Cleanup] Camera release error: {e}")
 
-    if state.eye_tracker:
+    if state.head_tracker:
         try:
-            state.eye_tracker.close()
+            state.head_tracker.close()
         except Exception:
             pass
 
@@ -113,15 +115,19 @@ def initialize():
     """初始化所有模块"""
     try:
         state.camera = Camera()
-        state.eye_tracker = EyeTracker(
-            confidence_threshold=config.detection_confidence
+        state.head_tracker = HeadTracker(
+            confidence_threshold=config.detection_confidence,
+            ema_alpha=config.get("head_ema_alpha", 0.15),
+            down_threshold=config.get("head_down_threshold", 0.03),
+            up_threshold=config.get("head_up_threshold", -0.03),
         )
-        state.gaze_state = GazeStateMachine(
-            dwell_time_ms=config.dwell_time_ms,
-            scroll_zone_ratio=config.scroll_zone_ratio,
-            up_scroll_enabled=config.up_scroll_enabled,
-            up_scroll_ratio=config.up_scroll_ratio,
-            up_dwell_time_ms=config.up_dwell_time_ms,
+        state.head_state = HeadStateMachine(
+            down_threshold=config.get("head_down_threshold", 0.03),
+            up_threshold=config.get("head_up_threshold", -0.03),
+            deadzone=config.get("head_deadzone", 0.01),
+            dwell_time_ms=config.get("head_dwell_time_ms", 300),
+            continuous_threshold_ms=config.get("head_continuous_threshold_ms", 2000),
+            scroll_interval_ms=config.scroll_interval_ms,
         )
         state.scroll_controller = ScrollController(
             scroll_distance=config.scroll_distance,
@@ -142,139 +148,85 @@ def tracking_loop():
     """追踪主循环"""
     while state.running:
         if not state.enabled:
-            time.sleep(0.1)
+            time.sleep(0.033)
             continue
 
         if state.camera is None:
-            time.sleep(0.1)
+            time.sleep(0.033)
             continue
 
         frame = state.camera.read()
         if frame is None:
-            time.sleep(0.1)
+            time.sleep(0.033)
             continue
 
-        gaze_point = state.eye_tracker.process(frame)
-        state.raw_gaze_y = state.eye_tracker.get_last_offset_y()
+        result = state.head_tracker.process(frame)
 
-        # 采集校准样本
-        if calibration_target is not None and state.raw_gaze_y is not None:
-            calibration_samples.append(state.raw_gaze_y)
-
-        if gaze_point is None:
-            state.gaze_state.no_face_detected()
+        if result is None:
+            state.head_state.no_face_detected()
+            state.head_offset = None
+            state.face_detected = False
         else:
-            state.gaze_state.update_gaze(gaze_point)
+            _, offset_y = result
+            state.head_offset = offset_y
+            state.face_detected = True
 
-        current_state = state.gaze_state.get_state()
+            # Check if calibration collection period is done
+            if state.head_tracker.is_calibration_done():
+                cal_result = state.head_tracker.stop_calibration()
+                state._last_calibration_result = cal_result
 
-        if current_state == GazeStateMachine.STATE_SCROLLING_DOWN:
-            state.scroll_controller.scroll_down()
-        elif current_state == GazeStateMachine.STATE_SCROLLING_UP:
-            state.scroll_controller.scroll_up()
-        else:
-            state.scroll_controller.stop()
+            action = state.head_state.update(offset_y)
+
+            if action == "scroll_down":
+                state.scroll_controller.scroll_down()
+            elif action == "scroll_up":
+                state.scroll_controller.scroll_up()
 
         with state.lock:
-            state.gaze_point = gaze_point
-            state.state = current_state
+            pass  # state is already updated on the attributes directly
 
-        time.sleep(1 / 30)
+        time.sleep(0.005)
 
 
 # ==================== HTTP API ====================
 
-async def handle_gaze(request):
-    """GET /api/gaze - 获取当前 gaze 位置"""
-    with state.lock:
-        data = {
-            "raw_x": state.gaze_point[0] if state.gaze_point else None,
-            "raw_y": state.raw_gaze_y,
-            "screen_y": state.gaze_point[1] if state.gaze_point else None,
-            "zone": _get_zone(state.gaze_point, state.gaze_state) if state.gaze_point else None,
-        }
-    return data
-
-
-def _get_zone(gaze_point, gaze_state):
-    if gaze_point is None:
-        return "none"
-    y = gaze_point[1]
-    if gaze_state is None:
-        return "unknown"
-    if y > gaze_state._down_threshold_y:
-        return "down"
-    elif y < gaze_state._up_threshold_y:
-        return "up"
-    else:
-        return "reading"
-
-
 async def handle_state(request):
-    """GET /api/state - 获取状态机状态"""
+    """GET /api/state - 获取状态"""
     with state.lock:
-        gp = state.gaze_point
         data = {
-            "state": state.state,
-            "gaze_point": gp,
-            "iris_y": state.raw_gaze_y,
-            "deviation": gp[1] if gp else None,
-            "calibration": {
-                "baseline": getattr(state.eye_tracker, '_baseline', None),
-                "calibrated": state.eye_tracker.is_calibrated(),
-            }
+            "state": state.head_state.get_state(),
+            "head_offset": state.head_offset,
+            "calibrated": state.head_tracker.is_calibrated() if state.head_tracker else False,
+            "neutral_y": state.head_tracker.get_neutral_y() if state.head_tracker else None,
+            "enabled": state.enabled,
+            "face_detected": state.face_detected,
         }
     return data
 
 
-# 校准采样缓冲区
-calibration_samples = []
-calibration_target = None  # 'top', 'bottom', or None
+async def handle_calibrate_neutral(request):
+    """POST /api/calibrate/neutral - 开始中性点校准"""
+    if state.head_tracker:
+        state.head_tracker.start_calibration(3.0)
+        return {"success": True, "status": "collecting", "duration": 3.0}
+    return {"error": "Tracker not initialized"}
 
 
-async def handle_calibrate_start(request):
-    """POST /api/calibrate/start - 开始采集校准样本"""
-    global calibration_samples, calibration_target
-    try:
-        body = await request.json()
-        calibration_target = body.get('target')  # 'top' or 'bottom'
-        calibration_samples = []
-        return {"success": True, "message": f"Started collecting {calibration_target} samples"}
-    except:
-        calibration_samples = []
-        calibration_target = None
-        return {"error": "Invalid request"}
+async def handle_calibrate_neutral_stop(request):
+    """POST /api/calibrate/neutral/stop - 停止校准"""
+    if state.head_tracker:
+        result = state.head_tracker.stop_calibration()
+        state._last_calibration_result = result
+        return result
+    return {"error": "Tracker not initialized"}
 
 
-async def handle_calibrate_stop(request):
-    """POST /api/calibrate/stop - 停止采集并计算最稳定值"""
-    global calibration_samples, calibration_target
-    if not calibration_samples or calibration_target is None:
-        return {"error": "No samples collected"}
-
-    # 计算最稳定值：取中间 50% 的平均值
-    sorted_samples = sorted(calibration_samples)
-    n = len(sorted_samples)
-    start = n // 4
-    end = n * 3 // 4
-    stable_samples = sorted_samples[start:end]
-    stable_value = sum(stable_samples) / len(stable_samples)
-
-    # 应用校准
-    if calibration_target == 'top':
-        state.eye_tracker.calibrate_top(stable_value)
-    elif calibration_target == 'bottom':
-        state.eye_tracker.calibrate_bottom(stable_value)
-
-    result = {
-        "success": True,
-        "target": calibration_target,
-        "value": stable_value,
-        "samples_count": len(calibration_samples)
-    }
-    calibration_samples = []
-    calibration_target = None
-    return result
+async def handle_calibrate_result(request):
+    """GET /api/calibrate/result - 获取校准结果"""
+    if state._last_calibration_result:
+        return state._last_calibration_result
+    return {"status": "no_result"}
 
 
 async def handle_calibration_save(request):
@@ -292,31 +244,12 @@ async def handle_calibration_load(request):
 
 
 async def handle_calibration_reset(request):
-    """POST /api/calibration/reset - 重置到保存的默认值"""
-    if load_calibration():
-        return {"success": True, "message": "Reset to saved calibration"}
-    # 如果没有保存的文件，才清空
-    if state.eye_tracker:
-        state.eye_tracker.reset_calibration()
-    return {"success": True, "message": "Reset to factory defaults (no saved calibration)"}
-
-
-async def handle_calibrate_top(request):
-    """POST /api/calibrate/top - 校准顶部（立即取当前值）"""
-    raw_y = state.raw_gaze_y
-    if raw_y is None:
-        return {"error": "No gaze detected"}
-    state.eye_tracker.calibrate_top(raw_y)
-    return {"success": True, "top_y": raw_y}
-
-
-async def handle_calibrate_bottom(request):
-    """POST /api/calibrate/bottom - 校准底部（立即取当前值）"""
-    raw_y = state.raw_gaze_y
-    if raw_y is None:
-        return {"error": "No gaze detected"}
-    state.eye_tracker.calibrate_bottom(raw_y)
-    return {"success": True, "bottom_y": raw_y}
+    """POST /api/calibration/reset - 重置校准"""
+    if state.head_tracker:
+        state.head_tracker.reset_calibration()
+    if CALIBRATION_FILE.exists():
+        CALIBRATION_FILE.unlink()
+    return {"success": True}
 
 
 async def handle_config_get(request):
@@ -358,8 +291,8 @@ async def handle_disable(request):
     state.enabled = False
     if state.scroll_controller:
         state.scroll_controller.stop()
-    if state.gaze_state:
-        state.gaze_state.reset()
+    if state.head_state:
+        state.head_state.reset()
     return {"success": True}
 
 
@@ -372,8 +305,8 @@ async def handle_set_enabled(request):
         if not enabled:
             if state.scroll_controller:
                 state.scroll_controller.stop()
-            if state.gaze_state:
-                state.gaze_state.reset()
+            if state.head_state:
+                state.head_state.reset()
         return {"success": True, "enabled": state.enabled}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -421,22 +354,20 @@ async def websocket_handler(websocket, path):
 
 
 async def gaze_broadcaster():
-    """定时广播 gaze 更新"""
+    """定时广播状态更新"""
     while state.running:
         if ws_manager.clients:
             with state.lock:
                 data = {
-                    "type": "gaze_update",
+                    "type": "state_update",
                     "data": {
-                        "raw_x": state.gaze_point[0] if state.gaze_point else None,
-                        "raw_y": state.raw_gaze_y,
-                        "screen_y": state.gaze_point[1] if state.gaze_point else None,
-                        "zone": _get_zone(state.gaze_point, state.gaze_state),
-                        "state": state.state,
+                        "state": state.head_state.get_state(),
+                        "head_offset": state.head_offset,
+                        "face_detected": state.face_detected,
                     }
                 }
             await ws_manager.broadcast(data)
-        await asyncio.sleep(1 / 30)  # ~30fps
+        await asyncio.sleep(1 / 30)
 
 
 # ==================== HTTP Server ====================
@@ -480,27 +411,17 @@ async def handle_request(reader, writer):
     content = b''
 
     try:
-        if path == '/api/gaze':
-            data = await handle_gaze(None)
-            content = json.dumps(data).encode()
-        elif path == '/api/state':
+        if path == '/api/state':
             data = await handle_state(None)
             content = json.dumps(data).encode()
-        elif path == '/api/calibrate/top':
-            data = await handle_calibrate_top(None)
+        elif path == '/api/calibrate/neutral':
+            data = await handle_calibrate_neutral(None)
             content = json.dumps(data).encode()
-        elif path == '/api/calibrate/bottom':
-            data = await handle_calibrate_bottom(None)
+        elif path == '/api/calibrate/neutral/stop':
+            data = await handle_calibrate_neutral_stop(None)
             content = json.dumps(data).encode()
-        elif path == '/api/calibrate/start':
-            content_length = int(headers.get('content-length', 0))
-            body = await reader.read(content_length) if content_length > 0 else b'{}'
-            class FakeRequest:
-                async def json(self): return json.loads(body.decode())
-            data = await handle_calibrate_start(FakeRequest())
-            content = json.dumps(data).encode()
-        elif path == '/api/calibrate/stop':
-            data = await handle_calibrate_stop(None)
+        elif path == '/api/calibrate/result':
+            data = await handle_calibrate_result(None)
             content = json.dumps(data).encode()
         elif path == '/api/calibration/save':
             data = await handle_calibration_save(None)
