@@ -19,14 +19,14 @@ FOREHEAD = 10
 CHIN = 152
 
 # Weights for weighted head pose
+# Chin is excluded — it moves opposite to the direction of interest when tilting up
 WEIGHTS = {
-    NOSE_TIP: 0.5,
-    CHIN: 0.3,
-    FOREHEAD: 0.2,
+    NOSE_TIP: 0.6,
+    FOREHEAD: 0.4,
 }
 
 # Key indices list
-KEY_INDICES = [NOSE_TIP, FOREHEAD, CHIN]
+KEY_INDICES = [NOSE_TIP, FOREHEAD]
 
 # Default model path
 MODEL_PATH = Path(__file__).parent.parent / ".models" / "face_landmarker.task"
@@ -41,6 +41,7 @@ class HeadTracker:
         down_threshold: float = 0.03,
         up_threshold: float = -0.03,
     ):
+        self._last_face_detected = False
         if model_path is None:
             model_path = str(MODEL_PATH)
 
@@ -80,7 +81,10 @@ class HeadTracker:
         rgb_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
         result = self._detector.detect_for_video(rgb_frame, self._frame_timestamp_ms)
 
-        if not result.face_landmarks or len(result.face_landmarks) == 0:
+        face_found = bool(result.face_landmarks and len(result.face_landmarks) > 0)
+        self._last_face_detected = face_found
+
+        if not face_found:
             return None
 
         landmarks = result.face_landmarks[0]
@@ -119,9 +123,11 @@ class HeadTracker:
         return self._ema_alpha * new + (1 - self._ema_alpha) * old
 
     def _is_spike(self, offset: float) -> bool:
-        """Reject single-frame spikes that exceed 3x the threshold."""
-        max_threshold = max(abs(self._down_threshold), abs(self._up_threshold))
-        return abs(offset) > 3 * max_threshold
+        """Reject single-frame spikes that exceed 10% of the offset range (normalized coordinates)."""
+        # In normalized coords, a head nod of ~30deg gives offset ~0.15 max.
+        # Use 10% of that as spike threshold = 0.015. This is contextual
+        # rather than threshold-based, so it works regardless of sensitivity setting.
+        return abs(offset) > 0.15
 
     def start_calibration(self, duration_seconds: float = 3.0) -> None:
         """Start collecting samples for neutral point calibration."""
@@ -129,12 +135,16 @@ class HeadTracker:
         self._calibration_samples = []
         self._calibration_start_time = time.monotonic()
         self._calibration_duration = duration_seconds
+        print(f"[Calibration] Started, duration={duration_seconds}s")
 
     def stop_calibration(self) -> dict:
         """Stop calibration, compute neutral point. Returns result dict."""
+        elapsed = time.monotonic() - self._calibration_start_time if self._calibration_start_time else 0
+        sample_count = len(self._calibration_samples)
+        print(f"[Calibration] Stopped: samples={sample_count}, elapsed={elapsed:.2f}s, was_calibrating={self._calibrating}")
         self._calibrating = False
-        if len(self._calibration_samples) < 10:
-            return {"success": False, "error": "Too few samples"}
+        if sample_count < 10:
+            return {"success": False, "error": "Too few samples", "sample_count": sample_count}
 
         neutral_y = statistics.median(self._calibration_samples)
         stddev = statistics.stdev(self._calibration_samples)
@@ -148,6 +158,19 @@ class HeadTracker:
             "neutral_y": neutral_y,
             "sample_count": len(self._calibration_samples),
             "stddev": stddev,
+        }
+
+    def get_calibration_progress(self) -> dict:
+        """Get current calibration progress."""
+        if not self._calibrating:
+            return {"calibrating": False, "samples": 0, "face_detected": self._last_face_detected}
+        elapsed = time.monotonic() - self._calibration_start_time
+        return {
+            "calibrating": True,
+            "samples": len(self._calibration_samples),
+            "face_detected": self._last_face_detected,
+            "elapsed": round(elapsed, 2),
+            "duration": self._calibration_duration,
         }
 
     def is_calibration_done(self) -> bool:

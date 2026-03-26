@@ -49,11 +49,7 @@ class HeadStateMachine:
 
         elif self._state == STATE_DWELLING_DOWN:
             if in_deadzone:
-                # Check if dwell was long enough for a single scroll
-                elapsed_ms = (now - self._dwell_start) * 1000
                 self._state = STATE_IDLE
-                if elapsed_ms >= self._dwell_time_ms:
-                    return "scroll_down"
                 return None
             elif offset_y < self._up_threshold:
                 # Direction switch
@@ -66,17 +62,18 @@ class HeadStateMachine:
                     self._state = STATE_CONTINUOUS_DOWN
                     self._last_scroll_time = now
                     return "continuous_down"
+                if elapsed_ms >= self._dwell_time_ms:
+                    # Trigger scroll immediately on dwell met (with rate limit)
+                    if (now - self._last_scroll_time) * 1000 >= self._scroll_interval_ms:
+                        self._last_scroll_time = now
+                        return "scroll_down"
             else:
-                # Between up_threshold and down_threshold but not in deadzone
                 self._state = STATE_IDLE
             return None
 
         elif self._state == STATE_DWELLING_UP:
             if in_deadzone:
-                elapsed_ms = (now - self._dwell_start) * 1000
                 self._state = STATE_IDLE
-                if elapsed_ms >= self._dwell_time_ms:
-                    return "scroll_up"
                 return None
             elif offset_y > self._down_threshold:
                 # Direction switch
@@ -89,6 +86,10 @@ class HeadStateMachine:
                     self._state = STATE_CONTINUOUS_UP
                     self._last_scroll_time = now
                     return "continuous_up"
+                if elapsed_ms >= self._dwell_time_ms:
+                    if (now - self._last_scroll_time) * 1000 >= self._scroll_interval_ms:
+                        self._last_scroll_time = now
+                        return "scroll_up"
             else:
                 self._state = STATE_IDLE
             return None

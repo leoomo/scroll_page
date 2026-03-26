@@ -15,9 +15,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from core.camera import Camera
 from core.head_tracker import HeadTracker
-from core.head_state import HeadStateMachine, STATE_IDLE
+from core.head_state import HeadStateMachine
 from core.scroll_controller import ScrollController
 from config import config, DEFAULT_CONFIG
+from adapters.mac_flash import show_flash
 
 # 校准数据文件
 CALIBRATION_FILE = Path(__file__).parent / "calibration.json"
@@ -146,35 +147,45 @@ def initialize():
 
 def tracking_loop():
     """追踪主循环"""
+    camera_open = False
+    last_action = None
+    last_flash_time = 0.0
+
     while state.running:
-        if not state.enabled:
-            time.sleep(0.033)
+        if not state.enabled and not (state.head_tracker and state.head_tracker._calibrating):
+            if camera_open:
+                state.camera.release()
+                camera_open = False
+            time.sleep(0.1)
             continue
 
-        if state.camera is None:
-            time.sleep(0.033)
-            continue
+        if not camera_open:
+            try:
+                state.camera = Camera()
+                camera_open = True
+            except Exception:
+                time.sleep(1)
+                continue
 
         frame = state.camera.read()
         if frame is None:
-            time.sleep(0.033)
             continue
 
         result = state.head_tracker.process(frame)
 
         if result is None:
-            state.head_state.no_face_detected()
-            state.head_offset = None
-            state.face_detected = False
+            if state.head_tracker and state.head_tracker._calibrating:
+                # During calibration, update face_detected from tracker
+                state.face_detected = getattr(state.head_tracker, '_last_face_detected', False)
+            else:
+                state.head_state.no_face_detected()
+                state.head_offset = None
+                state.face_detected = False
+                last_action = None
         else:
             _, offset_y = result
             state.head_offset = offset_y
             state.face_detected = True
-
-            # Check if calibration collection period is done
-            if state.head_tracker.is_calibration_done():
-                cal_result = state.head_tracker.stop_calibration()
-                state._last_calibration_result = cal_result
 
             action = state.head_state.update(offset_y)
 
@@ -183,8 +194,18 @@ def tracking_loop():
             elif action == "scroll_up":
                 state.scroll_controller.scroll_down()
 
-        with state.lock:
-            pass  # state is already updated on the attributes directly
+            # Flash direction arrow on state transition (throttle: max once per 2s)
+            if action and action != last_action:
+                now = time.monotonic()
+                if now - last_flash_time > 2.0:
+                    last_flash_time = now
+                    if "down" in action:
+                        show_flash("↓")
+                    elif "up" in action:
+                        show_flash("↑")
+                last_action = action
+            elif not action:
+                last_action = None
 
         time.sleep(0.005)
 
@@ -229,6 +250,13 @@ async def handle_calibrate_result(request):
     return {"status": "no_result"}
 
 
+async def handle_calibrate_progress(request):
+    """GET /api/calibrate/progress - 获取校准进度"""
+    if state.head_tracker:
+        return state.head_tracker.get_calibration_progress()
+    return {"calibrating": False, "samples": 0, "face_detected": False}
+
+
 async def handle_calibration_save(request):
     """POST /api/calibration/save - 保存校准数据"""
     if save_calibration():
@@ -265,7 +293,24 @@ async def handle_config_get(request):
         "up_dwell_time_ms": config.up_dwell_time_ms,
         "up_scroll_distance": config.up_scroll_distance,
         "up_scroll_interval_ms": config.up_scroll_interval_ms,
+        "head_down_threshold": config.get("head_down_threshold", 0.05),
+        "head_up_threshold": config.get("head_up_threshold", -0.03),
+        "head_deadzone": config.get("head_deadzone", 0.01),
     }
+
+
+def _sync_thresholds():
+    """Sync threshold config to running HeadStateMachine and HeadTracker instances."""
+    down = config.get("head_down_threshold", 0.05)
+    up = config.get("head_up_threshold", -0.03)
+    deadzone = config.get("head_deadzone", 0.01)
+    if state.head_state:
+        state.head_state._down_threshold = down
+        state.head_state._up_threshold = up
+        state.head_state._deadzone = deadzone
+    if state.head_tracker:
+        state.head_tracker._down_threshold = down
+        state.head_tracker._up_threshold = up
 
 
 async def handle_config_put(request):
@@ -273,8 +318,9 @@ async def handle_config_put(request):
     try:
         body = await request.json()
         for key, value in body.items():
-            if hasattr(config, key):
+            if key in DEFAULT_CONFIG:
                 config.set(key, value)
+        _sync_thresholds()
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -283,6 +329,7 @@ async def handle_config_put(request):
 async def handle_enable(request):
     """POST /api/enable - 启用追踪"""
     state.enabled = True
+    show_flash("Tracking ON")
     return {"success": True}
 
 
@@ -293,6 +340,7 @@ async def handle_disable(request):
         state.scroll_controller.stop()
     if state.head_state:
         state.head_state.reset()
+    show_flash("Tracking OFF")
     return {"success": True}
 
 
@@ -380,6 +428,7 @@ async def handle_request(reader, writer):
         return
 
     method, path, _ = request_line.decode().strip().split()
+    print(f"[HTTP] {method} {path}", flush=True)
 
     # 读取 headers
     headers = {}
@@ -423,6 +472,9 @@ async def handle_request(reader, writer):
         elif path == '/api/calibrate/result':
             data = await handle_calibrate_result(None)
             content = json.dumps(data).encode()
+        elif path == '/api/calibrate/progress':
+            data = await handle_calibrate_progress(None)
+            content = json.dumps(data).encode()
         elif path == '/api/calibration/save':
             data = await handle_calibration_save(None)
             content = json.dumps(data).encode()
@@ -437,7 +489,6 @@ async def handle_request(reader, writer):
                 data = await handle_config_get(None)
                 content = json.dumps(data).encode()
             elif method == 'PUT':
-                # 读取请求体
                 content_length = int(headers.get('content-length', 0))
                 body = await reader.read(content_length) if content_length > 0 else b'{}'
                 try:
@@ -445,6 +496,7 @@ async def handle_request(reader, writer):
                     for key, value in updates.items():
                         if key in DEFAULT_CONFIG:
                             config.set(key, value)
+                    _sync_thresholds()
                     content = b'{"success": true}'
                 except Exception as e:
                     status = b'HTTP/1.1 400 Bad Request'

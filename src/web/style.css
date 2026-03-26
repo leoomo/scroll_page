@@ -77,60 +77,17 @@ body {
     color: var(--text-muted);
 }
 
-/* Visualizer */
-#visualizer {
+/* Article Frame */
+#article-frame {
     flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
+    overflow: hidden;
 }
 
-#offset-bar {
-    position: relative;
-    width: 4px;
-    height: 250px;
-    background: var(--track);
-    border-radius: 2px;
-}
-
-#deadzone-indicator {
-    position: absolute;
-    top: 50%;
-    left: 0;
+#article-frame iframe {
     width: 100%;
-    height: 25px;
-    transform: translateY(-50%);
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 2px;
-}
-
-#offset-marker {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 14px;
-    height: 14px;
-    background: var(--accent);
-    border-radius: 50%;
-    transform: translate(-50%, -50%);
-    box-shadow: 0 0 10px var(--accent-glow);
-    transition: top 0.08s ease-out;
-}
-
-#offset-labels {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-}
-
-#offset-labels span {
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 1px;
-    color: var(--text-muted);
+    height: 100%;
+    border: none;
+    background: #fff;
 }
 
 /* Control Bar */
@@ -220,6 +177,10 @@ body {
 .icon-btn:hover {
     background: var(--bg-surface);
     color: var(--text);
+}
+
+#btn-test {
+    font-size: 16px;
 }
 
 /* Settings Panel */

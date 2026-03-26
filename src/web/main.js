@@ -1,13 +1,29 @@
 const API_BASE = 'http://127.0.0.1:8765';
+const SENSITIVITY_BASE = 0.04;
+const SENSITIVITY_STEP = 0.035 / 9;
 let calibrationTimer = null;
+let lastShiftRightTime = 0;
 
 const connectionDot = document.getElementById('connection-dot');
 const stateText = document.getElementById('state-text');
-const offsetMarker = document.getElementById('offset-marker');
 const btnCalibrate = document.getElementById('btn-calibrate');
 const toggleEnabled = document.getElementById('toggle-enabled');
 const btnSettings = document.getElementById('btn-settings');
 const settingsPanel = document.getElementById('settings-panel');
+
+// Double-click right Shift to toggle tracking
+document.addEventListener('keydown', async (e) => {
+    if (e.code === 'ShiftRight') {
+        const now = Date.now();
+        if (now - lastShiftRightTime < 350) {
+            e.preventDefault();
+            toggleEnabled.checked = !toggleEnabled.checked;
+            const endpoint = toggleEnabled.checked ? '/api/enable' : '/api/disable';
+            await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
+        }
+        lastShiftRightTime = now;
+    }
+});
 const scrollDistanceSlider = document.getElementById('scroll-distance');
 const scrollDistanceVal = document.getElementById('scroll-distance-val');
 const sensitivitySlider = document.getElementById('sensitivity');
@@ -39,21 +55,11 @@ async function fetchState() {
         }
 
         stateText.textContent = STATE_LABELS[data.state] || data.state.toUpperCase();
-
-        if (data.head_offset !== null && data.head_offset !== undefined) {
-            const range = 0.05;
-            const clamped = Math.max(-range, Math.min(range, -data.head_offset));
-            const percent = ((clamped + range) / (range * 2)) * 100;
-            offsetMarker.style.top = `${percent}%`;
-            offsetMarker.classList.remove('hidden');
-        } else {
-            offsetMarker.classList.add('hidden');
-        }
     } catch (e) {
         connectionDot.className = 'status-dot error';
     }
 
-    requestAnimationFrame(fetchState);
+    setTimeout(fetchState, 200);
 }
 
 async function startCalibration() {
@@ -68,11 +74,25 @@ async function startCalibration() {
         await fetch(`${API_BASE}/api/calibrate/neutral`, { method: 'POST' });
 
         let remaining = 3;
+        // Poll calibration progress
+        const progressTimer = setInterval(async () => {
+            try {
+                const res = await fetch(`${API_BASE}/api/calibrate/progress`);
+                const progress = await res.json();
+                if (progress.calibrating) {
+                    calibrationText.textContent = progress.face_detected
+                        ? `Collecting samples... (${progress.samples})`
+                        : 'No face detected - look at camera';
+                }
+            } catch (_) {}
+        }, 200);
+
         calibrationTimer = setInterval(async () => {
             remaining--;
             calibrationCountdown.textContent = remaining;
             if (remaining <= 0) {
                 clearInterval(calibrationTimer);
+                clearInterval(progressTimer);
                 calibrationTimer = null;
                 await stopCalibration();
             }
@@ -102,6 +122,12 @@ async function stopCalibration() {
                 connectionDot.classList.remove('flash');
                 calibrationOverlay.classList.add('hidden');
                 calibrationResult.classList.add('hidden');
+                // Auto-focus the iframe so head-scroll works immediately
+                const iframe = document.getElementById('test-article');
+                if (iframe) {
+                    iframe.focus();
+                    iframe.contentWindow?.scrollTo({ top: 0, behavior: 'smooth' });
+                }
             }, 1500);
         } else {
             calibrationText.textContent = result.error || 'Calibration failed';
@@ -110,6 +136,28 @@ async function stopCalibration() {
         calibrationText.textContent = 'Error';
     }
 }
+
+// Initialize sliders from backend config
+async function initSliders() {
+    try {
+        const res = await fetch(`${API_BASE}/api/config`);
+        const cfg = await res.json();
+        if (cfg.scroll_distance != null) {
+            scrollDistanceSlider.value = cfg.scroll_distance;
+            scrollDistanceVal.textContent = cfg.scroll_distance;
+        }
+        if (cfg.head_down_threshold != null) {
+            // Reverse-engineer slider value from threshold
+            // threshold = 0.08 - (val - 1) * (0.05 / 9)
+            const threshold = Math.abs(cfg.head_down_threshold);
+            const val = Math.round(1 + (SENSITIVITY_BASE - threshold) / SENSITIVITY_STEP);
+            const clamped = Math.max(1, Math.min(10, val));
+            sensitivitySlider.value = clamped;
+            sensitivityVal.textContent = clamped;
+        }
+    } catch (_) {}
+}
+initSliders();
 
 btnSettings.addEventListener('click', () => {
     settingsPanel.classList.toggle('hidden');
@@ -138,7 +186,7 @@ sensitivitySlider.addEventListener('input', () => {
 
 sensitivitySlider.addEventListener('change', async () => {
     const val = parseInt(sensitivitySlider.value);
-    const threshold = parseFloat((0.06 - (val - 1) * (0.05 / 9)).toFixed(3));
+    const threshold = parseFloat((SENSITIVITY_BASE - (val - 1) * SENSITIVITY_STEP).toFixed(3));
     await fetch(`${API_BASE}/api/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -155,4 +203,4 @@ btnResetCalibration.addEventListener('click', async () => {
 
 btnCalibrate.addEventListener('click', startCalibration);
 
-requestAnimationFrame(fetchState);
+setTimeout(fetchState, 200);
