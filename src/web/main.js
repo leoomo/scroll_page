@@ -95,11 +95,10 @@ async function fetchState() {
 function showPrepareDialog(target) {
   pendingCalibration = { target };
   const label = target === 'top' ? 'Look Up' : 'Look Down';
-  const direction = target === 'top' ? '向上看' : '向下看';
 
   confirmMessage.innerHTML = `
     <strong>${label}</strong><br>
-    <span style="color: var(--text-secondary)">请${direction}，点击"开始"后保持 2 秒</span>
+    <span style="color: var(--text-secondary)">Look ${target === 'top' ? 'up' : 'down'}, click Start and hold for 2s</span>
   `;
   confirmYesBtn.style.display = '';
   confirmYesBtn.textContent = 'Start';
@@ -113,20 +112,19 @@ async function startCollection() {
 
   const target = pendingCalibration.target;
   const label = target === 'top' ? 'Look Up' : 'Look Down';
-  const direction = target === 'top' ? '向上看' : '向下看';
+  const direction = target === 'top' ? 'Looking up' : 'Looking down';
 
   isCollecting = true;
 
-  // 更新对话框显示采集中
   confirmMessage.innerHTML = `
     <span class="collecting"></span>
     <strong>${label}</strong><br>
-    <span style="color: var(--text-secondary)">${direction}并保持... <span id="countdown">2s</span></span>
+    <span style="color: var(--text-secondary)">${direction}, hold steady... <span id="countdown">2s</span></span>
   `;
   confirmYesBtn.style.display = 'none';
   confirmNoBtn.textContent = 'Cancel';
 
-  // 倒计时
+  // Countdown
   let countdown = 2;
   const countdownEl = document.getElementById('countdown');
   const countdownInterval = setInterval(() => {
@@ -155,9 +153,8 @@ async function startCollection() {
 
     if (result.success) {
       pendingCalibration = { target, value: result.value };
-      // 更新对话框显示结果
       confirmMessage.innerHTML = `
-        <strong>${label}</strong> 采集完成<br>
+        <strong>${label}</strong> Complete<br>
         <span style="font-size: 0.9em; color: var(--text-secondary)">
           iris_y = ${result.value.toFixed(4)} (${result.samples_count} samples)
         </span>

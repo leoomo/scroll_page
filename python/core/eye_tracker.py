@@ -42,10 +42,10 @@ class EyeTracker:
         self.confidence_threshold = confidence_threshold
         self._frame_timestamp = 0
 
-        # 默认校准参数（已校准的值）
+        # 默认校准参数（虹膜相对位置）
         self._calibrated = True
-        self._top_offset_y = 0.7515    # 向上看时的 iris_y
-        self._bottom_offset_y = 0.7605  # 向下看时的 iris_y
+        self._top_offset_y = 0.30    # 向上看时的 iris_relative_y（约 0.25-0.35）
+        self._bottom_offset_y = 0.70  # 向下看时的 iris_relative_y（约 0.65-0.75）
 
         # 指数滑动平均参数
         self._smoothing_alpha = 0.3   # 越小越平滑
@@ -93,9 +93,9 @@ class EyeTracker:
 
     def reset_calibration(self):
         """重置校准到默认值"""
-        # 默认校准值（从 calibration.json 保存的值）
-        self._top_offset_y = 0.7514852444330852
-        self._bottom_offset_y = 0.7605235079924265
+        # 默认校准值（虹膜相对位置）
+        self._top_offset_y = 0.30
+        self._bottom_offset_y = 0.70
         self._top_gaze_y = self._top_offset_y
         self._bottom_gaze_y = self._bottom_offset_y
         self._calibrated = True
@@ -103,7 +103,10 @@ class EyeTracker:
         print(f"[校准] 已重置到默认值: top={self._top_offset_y:.4f}, bottom={self._bottom_offset_y:.4f}")
 
     def process(self, frame: np.ndarray) -> Optional[Tuple[float, float]]:
-        """处理一帧图像，检测视线位置"""
+        """处理一帧图像，检测视线位置
+
+        使用虹膜相对于眼眶的位置，而不是绝对坐标，以提高距离不变性
+        """
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
         result = self._detector.detect_for_video(mp_image, self._frame_timestamp)
         self._frame_timestamp += 33  # ~30fps
@@ -112,38 +115,48 @@ class EyeTracker:
             return None
 
         face_landmarks = result.face_landmarks[0]
-        left_iris  = face_landmarks[LEFT_IRIS_INDEX]
-        right_iris = face_landmarks[RIGHT_IRIS_INDEX]
 
         # 虹膜中心
-        iris_y = (left_iris.y + right_iris.y) / 2
+        left_iris  = face_landmarks[LEFT_IRIS_INDEX]
+        right_iris = face_landmarks[RIGHT_IRIS_INDEX]
         self._last_raw_x = (left_iris.x + right_iris.x) / 2
 
-        # 指数滑动平均滤波（降低帧间噪声）
+        # 眼眶边界
+        left_eye_top = face_landmarks[LEFT_UPPER_LID]
+        left_eye_bottom = face_landmarks[LEFT_LOWER_LID]
+        right_eye_top = face_landmarks[RIGHT_UPPER_LID]
+        right_eye_bottom = face_landmarks[RIGHT_LOWER_LID]
+
+        # 计算虹膜在眼眶内的相对位置（距离无关）
+        left_eye_height = left_eye_bottom.y - left_eye_top.y
+        right_eye_height = right_eye_bottom.y - right_eye_top.y
+
+        # 防止除零
+        if abs(left_eye_height) < 0.001 or abs(right_eye_height) < 0.001:
+            return None
+
+        left_iris_relative = (left_iris.y - left_eye_top.y) / left_eye_height
+        right_iris_relative = (right_iris.y - right_eye_top.y) / right_eye_height
+
+        # 双眼平均（范围约 0.2~0.8）
+        iris_relative_y = (left_iris_relative + right_iris_relative) / 2
+
+        # 指数滑动平均滤波
         if self._last_smoothed_offset_y is None:
-            self._last_smoothed_offset_y = iris_y
+            self._last_smoothed_offset_y = iris_relative_y
         smoothed_y = (
-            self._smoothing_alpha * iris_y +
+            self._smoothing_alpha * iris_relative_y +
             (1 - self._smoothing_alpha) * self._last_smoothed_offset_y
         )
         self._last_smoothed_offset_y = smoothed_y
 
         # 存储用于校准
-        self._last_raw_offset_y = iris_y
+        self._last_raw_offset_y = iris_relative_y
 
         # 应用校准转换
         if self._calibrated and self._bottom_offset_y != self._top_offset_y:
-            # 计算原始范围并大幅扩展，增加中间区域的容差
-            raw_range = abs(self._bottom_offset_y - self._top_offset_y)
-            # 确保最小有效范围（越大越不灵敏）
-            min_range = 0.05  # 5% 的范围，降低灵敏度
-            effective_range = max(raw_range * 3.0, min_range)
-            center = (self._top_offset_y + self._bottom_offset_y) / 2
-            effective_top = center - effective_range / 2
-            effective_bottom = center + effective_range / 2
-
-            # 反转方向：向下看时 iris_y 增大，但屏幕坐标 y 应该增大（向下）
-            screen_y = (effective_bottom - smoothed_y) / (effective_bottom - effective_top)
+            # 反转方向：向下看时 iris_relative_y 增大，屏幕 y 也应该增大
+            screen_y = (smoothed_y - self._top_offset_y) / (self._bottom_offset_y - self._top_offset_y)
             screen_y = max(0.0, min(1.0, screen_y))
             return (float(self._last_raw_x), float(screen_y))
 
