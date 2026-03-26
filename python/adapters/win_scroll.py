@@ -4,7 +4,7 @@ Windows 滚动适配器
 """
 import time
 import ctypes
-from ctypes import windll, POINTER, Structure, c_long, c_ulong, byref
+from ctypes import windll, c_long, c_ulong
 
 
 class MSLLHOOKSTRUCT(Structure):

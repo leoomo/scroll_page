@@ -2,8 +2,10 @@
 EyeScroll 状态机模块
 管理 IDLE / DWELLING_DOWN / SCROLLING_DOWN / DWELLING_UP / SCROLLING_UP 五种状态
 """
-import time
+import datetime
 import os
+import sys
+import time
 from typing import Optional, Tuple
 
 DEBUG = os.environ.get("EYE_SCROLL_DEBUG", "0") == "1"
@@ -62,8 +64,6 @@ class GazeStateMachine:
             zone = "下方滚动区"
         elif gaze_y < self._up_threshold_y:
             zone = "上方滚动区"
-        import datetime
-        import sys
         ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
         print(f"[{ts}] ({gaze_x:.2f}, {gaze_y:.2f}) -> {zone}", flush=True)
 
