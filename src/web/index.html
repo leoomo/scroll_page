@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EyeScroll</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>👁 EyeScroll</h1>
+      <div id="connection-status">
+        <span id="status-dot" class="disconnected"></span>
+        <span id="status-text">Disconnected</span>
+      </div>
+    </header>
+
+    <main>
+      <section id="gaze-viz">
+        <h2>Gaze Position</h2>
+        <div class="screen-preview">
+          <div class="zone zone-up">↑ Up Zone</div>
+          <div class="gaze-indicator" id="gaze-dot"></div>
+          <div class="zone zone-reading">📖 Reading Zone</div>
+          <div class="zone zone-down">↓ Down Zone</div>
+        </div>
+        <div class="gaze-data">
+          <p>Raw: (<span id="raw-x">-</span>, <span id="raw-y">-</span>)</p>
+          <p>Screen Y: <span id="screen-y">-</span></p>
+          <p>Zone: <span id="zone">-</span></p>
+          <p>State: <span id="state">-</span></p>
+        </div>
+      </section>
+
+      <section id="controls">
+        <div class="control-group">
+          <h3>Down Scroll</h3>
+          <label>
+            <input type="checkbox" id="enable-down" checked>
+            Enable
+          </label>
+          <div class="slider-group">
+            <label>Dwell Time: <span id="dwell-value">500</span>ms</label>
+            <input type="range" id="dwell-time" min="200" max="1500" value="500">
+          </div>
+          <div class="slider-group">
+            <label>Zone Ratio: <span id="zone-ratio-value">20</span>%</label>
+            <input type="range" id="zone-ratio" min="10" max="40" value="20">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h3>Up Scroll</h3>
+          <label>
+            <input type="checkbox" id="enable-up" checked>
+            Enable
+          </label>
+          <div class="slider-group">
+            <label>Dwell Time: <span id="up-dwell-value">800</span>ms</label>
+            <input type="range" id="up-dwell-time" min="300" max="2000" value="800">
+          </div>
+          <div class="slider-group">
+            <label>Zone Ratio: <span id="up-zone-ratio-value">10</span>%</label>
+            <input type="range" id="up-zone-ratio" min="5" max="30" value="10">
+          </div>
+        </div>
+      </section>
+
+      <section id="calibration">
+        <h2>Calibration</h2>
+        <div class="calibration-steps">
+          <button id="calibrate-top" class="btn btn-primary">
+            1. Look at Camera, Click Here
+          </button>
+          <button id="calibrate-bottom" class="btn btn-secondary">
+            2. Look at Screen Bottom, Click Here
+          </button>
+        </div>
+        <p id="calibration-status">Not calibrated</p>
+      </section>
+
+      <section id="actions">
+        <button id="toggle-tracking" class="btn btn-large">
+          Start Tracking
+        </button>
+      </section>
+    </main>
+
+    <footer>
+      <p>EyeScroll v0.1.0 - Eye Tracking Scroll App</p>
+    </footer>
+  </div>
+
+  <script src="../node_modules/@tauri-apps/api/dist/api.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
