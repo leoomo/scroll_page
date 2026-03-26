@@ -18,14 +18,17 @@ NOSE_TIP = 1
 FOREHEAD = 10
 CHIN = 152
 
-# Weights for weighted head pose
-# Chin is excluded — it moves opposite to the direction of interest when tilting up
-WEIGHTS = {
-    NOSE_TIP: 0.6,
-    FOREHEAD: 0.4,
-}
+# Head Y computation: use forehead-chin difference
+# In normalized coords (Y=0 at top): looking down = forehead rises (Y↓), chin drops (Y↑)
+# forehead - chin: less negative when looking down (chin dropped), more negative when looking up (chin rose)
+# So positive offset = looking down, negative = looking up
+def _compute_head_y(landmarks) -> float:
+    forehead_y = landmarks[FOREHEAD].y
+    chin_y = landmarks[CHIN].y
+    return forehead_y - chin_y
 
-# Key indices list
+
+# Key indices for backward compatibility (unused in new formula)
 KEY_INDICES = [NOSE_TIP, FOREHEAD]
 
 # Default model path
@@ -88,7 +91,7 @@ class HeadTracker:
             return None
 
         landmarks = result.face_landmarks[0]
-        head_y = self._compute_head_y(landmarks)
+        head_y = _compute_head_y(landmarks)
 
         # During calibration, collect samples instead of computing offset
         if self._calibrating:
@@ -106,13 +109,6 @@ class HeadTracker:
 
         self._smooth_offset = self._apply_ema(self._smooth_offset, raw_offset)
         return (0.0, self._smooth_offset)
-
-    def _compute_head_y(self, landmarks) -> float:
-        """Compute weighted head Y from key landmarks."""
-        head_y = 0.0
-        for idx in KEY_INDICES:
-            head_y += WEIGHTS[idx] * landmarks[idx].y
-        return head_y
 
     def _compute_offset(self, head_y: float) -> float:
         """Compute offset from neutral point. Positive = tilting down, negative = tilting up."""

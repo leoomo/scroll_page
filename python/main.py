@@ -192,9 +192,9 @@ def tracking_loop():
             state.last_action = action
 
             if action == "scroll_down":
-                state.scroll_controller.scroll_up()
-            elif action == "scroll_up":
                 state.scroll_controller.scroll_down()
+            elif action == "scroll_up":
+                state.scroll_controller.scroll_up()
 
             # Flash direction arrow on state transition (throttle: max once per 2s)
             if action and action != last_action:

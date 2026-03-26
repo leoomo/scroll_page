@@ -20,7 +20,7 @@ let shortcutRegistered = false;
 async function registerToggleShortcut() {
     if (shortcutRegistered) return;
     try {
-        await register('Command+R', async () => {
+        await register('Shift', async () => {
             const now = Date.now();
             if (now - lastRightCmdTime < 400) {
                 toggleEnabled.checked = !toggleEnabled.checked;
@@ -32,6 +32,7 @@ async function registerToggleShortcut() {
         shortcutRegistered = true;
     } catch (e) {
         console.warn('Global shortcut failed:', e);
+        document.getElementById('state-text').textContent = 'Shortcut error: ' + e;
     }
 }
 registerToggleShortcut();
