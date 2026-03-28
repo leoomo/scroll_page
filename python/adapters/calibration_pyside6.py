@@ -1,5 +1,5 @@
 """
-EyeScroll 校准窗口 - PySide6 实现（使用 multiprocessing 隔离 Qt）
+HeadScroll 校准窗口 - PySide6 实现（使用 multiprocessing 隔离 Qt）
 """
 import sys
 import time
@@ -95,7 +95,7 @@ def _calibration_process_main(result_queue: multiprocessing.Queue, duration: flo
                 layout.setSpacing(12)
                 layout.setContentsMargins(24, 20, 24, 16)
 
-                self.title_label = QLabel("EyeScroll")
+                self.title_label = QLabel("HeadScroll")
                 self.title_label.setAlignment(Qt.AlignCenter)
                 self.title_label.setObjectName("title")
                 layout.addWidget(self.title_label)

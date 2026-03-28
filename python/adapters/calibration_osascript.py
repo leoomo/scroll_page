@@ -1,5 +1,5 @@
 """
-EyeScroll 校准 - osascript 简单实现
+HeadScroll 校准 - osascript 简单实现
 使用 AppleScript 显示进度对话框，最可靠
 """
 import subprocess
@@ -22,7 +22,7 @@ def run_calibration(head_tracker, duration: float = 3.0,
     head_tracker.start_calibration(duration)
 
     # 显示开始提示
-    _show_alert("EyeScroll 校准", "请将头部保持在中立位置\n校准将在 3 秒后开始...")
+    _show_alert("HeadScroll 校准", "请将头部保持在中立位置\n校准将在 3 秒后开始...")
 
     # 等待倒计时
     for i in range(3, 0, -1):
@@ -62,7 +62,7 @@ def _show_progress_dialog(head_tracker, duration: float,
         set progress completed steps to i
     end repeat
 
-    display notification "EyeScroll 校准完成" with title "EyeScroll"
+    display notification "HeadScroll 校准完成" with title "HeadScroll"
     '''
 
     # 在后台运行 AppleScript
@@ -76,10 +76,10 @@ def _show_progress_dialog(head_tracker, duration: float,
         # 显示结果
         if cal_result.get("success"):
             msg = f"校准成功！\\n样本数: {cal_result.get('sample_count', 0)}"
-            _show_result_dialog("EyeScroll 校准完成", msg, "确定")
+            _show_result_dialog("HeadScroll 校准完成", msg, "确定")
         else:
             msg = f"校准失败: {cal_result.get('error', '未知错误')}"
-            _show_result_dialog("EyeScroll 校准失败", msg, "重试")
+            _show_result_dialog("HeadScroll 校准失败", msg, "重试")
 
         # 回调
         if on_complete:

@@ -1,5 +1,5 @@
 """
-EyeScroll - 本地菜单栏客户端
+HeadScroll - 本地菜单栏客户端
 纯本地应用，无网络开销，追求最低延迟
 """
 import atexit
@@ -31,7 +31,7 @@ from config import config
 from adapters.mac_flash import show_flash
 from adapters.calibration_pyside6 import show_calibration_dialog
 
-APP_NAME = "EyeScroll"
+APP_NAME = "HeadScroll"
 CALIBRATION_FILE = Path.home() / ".eye_scroll" / "calibration.json"
 
 # ==================== Global State ====================
@@ -193,7 +193,7 @@ def cleanup():
 
 # ==================== Menu Bar App ====================
 
-class EyeScrollApp(rumps.App):
+class HeadScrollApp(rumps.App):
     def __init__(self):
         super().__init__("👁", menu=[
             rumps.MenuItem("启用"),
@@ -330,7 +330,7 @@ def main():
     print(f"[EyeScroll] 已启动 (PID: {os.getpid()})")
 
     # 运行菜单栏 (阻塞)
-    app = EyeScrollApp()
+    app = HeadScrollApp()
     app.run()
 
 if __name__ == "__main__":

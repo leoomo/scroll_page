@@ -1,5 +1,5 @@
 """
-EyeScroll 校准窗口
+HeadScroll 校准窗口
 使用 AppKit 创建浮动窗口引导校准流程
 """
 import json
@@ -68,7 +68,7 @@ title_label.setBezeled_(False)
 title_label.setDrawsBackground_(False)
 title_label.setTextColor_(TEXT_COLOR)
 title_label.setFont_(regular_font(16))
-title_label.setStringValue_("EyeScroll 校准")
+title_label.setStringValue_("HeadScroll 校准")
 title_label.setAlignment_(1)
 content.addSubview_(title_label)
 
