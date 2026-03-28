@@ -32,21 +32,25 @@ class MacScrollController:
             # 创建带 nil source 的事件（这样系统会根据鼠标位置路由到对应窗口）
             event = CGEventCreateScrollWheelEvent(
                 None,           # nil source → 根据鼠标位置路由
-                0,              # 0 = 光学滚轮
+                0,              # 0 = kCGScrollEventUnitPixel
                 1,              # 1 个滚轮
                 delta,
             )
             if event:
                 CGEventPost(kCGHIDEventTap, event)
+                print(f"[SCROLL] CGEvent posted: delta={delta}", flush=True)
+            else:
+                print(f"[SCROLL] CGEvent creation FAILED: delta={delta}", flush=True)
             return True
         except Exception as e:
-            print(f"滚动错误: {e}")
+            print(f"[SCROLL] Exception: {e}", flush=True)
             return False
 
     def scroll_down(self) -> bool:
         """执行一次向下滚动（内容向上走）"""
         current_time = time.monotonic() * 1000
-        if current_time - self._last_down_scroll_time < self._down_interval_ms:
+        elapsed = current_time - self._last_down_scroll_time
+        if elapsed < self._down_interval_ms:
             return False
         self._last_down_scroll_time = current_time
         return self._send_scroll(self._down_distance)

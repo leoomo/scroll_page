@@ -48,6 +48,10 @@ class HeadStateMachine:
         now = time.monotonic()
         in_deadzone = abs(offset_y) < self._deadzone
 
+        # DEBUG: print state transitions
+        if self._state != STATE_IDLE or not in_deadzone:
+            print(f"[HeadState] state={self._state} offset_y={offset_y:.4f} in_dz={in_deadzone} d_th={self._down_threshold} u_th={self._up_threshold}", flush=True)
+
         if self._state == STATE_IDLE:
             return self._handle_idle(offset_y, now)
 

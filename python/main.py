@@ -67,6 +67,7 @@ class AppState:
         self.face_detected = False
         self.last_action = None  # str | None
         self.lock = threading.Lock()
+        self._camera_lock = threading.Lock()  # 保护摄像头访问
         self._last_calibration_result = None
 
 
@@ -78,18 +79,32 @@ def cleanup():
     print("[Cleanup] Starting cleanup...")
     state.running = False
 
+    # 等待追踪线程退出（最多2秒）
+    for t in threading.enumerate():
+        if t.name == "tracking_thread":
+            t.join(timeout=2.0)
+            break
+
+    # 安全释放资源（非阻塞获取锁）
+    if state._camera_lock.acquire(blocking=False):
+        try:
+            if state.camera:
+                try:
+                    state.camera.release()
+                    print("[Cleanup] Camera released")
+                except Exception as e:
+                    print(f"[Cleanup] Camera release error: {e}")
+                state.camera = None
+        finally:
+            state._camera_lock.release()
+    else:
+        print("[Cleanup] Could not acquire camera lock, skipping release")
+
     if state.scroll_controller:
         try:
             state.scroll_controller.stop()
         except Exception:
             pass
-
-    if state.camera:
-        try:
-            state.camera.release()
-            print("[Cleanup] Camera released")
-        except Exception as e:
-            print(f"[Cleanup] Camera release error: {e}")
 
     if state.head_tracker:
         try:
@@ -155,24 +170,41 @@ def tracking_loop():
     while state.running:
         if not state.enabled and not (state.head_tracker and state.head_tracker._calibrating):
             if camera_open:
-                state.camera.release()
+                with state._camera_lock:
+                    if state.camera:
+                        state.camera.release()
                 camera_open = False
             time.sleep(0.1)
             continue
 
         if not camera_open:
             try:
-                state.camera = Camera()
+                with state._camera_lock:
+                    if not state.running:
+                        break
+                    state.camera = Camera()
                 camera_open = True
             except Exception:
                 time.sleep(1)
                 continue
 
-        frame = state.camera.read()
+        # 读取帧（加锁保护）
+        with state._camera_lock:
+            if not state.running or state.camera is None:
+                break
+            try:
+                frame = state.camera.read()
+            except Exception:
+                frame = None
+
         if frame is None:
             continue
 
-        result = state.head_tracker.process(frame)
+        # 处理帧
+        try:
+            result = state.head_tracker.process(frame)
+        except Exception:
+            result = None
 
         if result is None:
             if state.head_tracker and state.head_tracker._calibrating:
@@ -210,6 +242,15 @@ def tracking_loop():
                 last_action = None
 
         time.sleep(0.005)
+
+    # 循环退出时释放摄像头
+    if camera_open:
+        with state._camera_lock:
+            if state.camera:
+                try:
+                    state.camera.release()
+                except Exception:
+                    pass
 
 
 # ==================== HTTP API ====================
@@ -549,7 +590,7 @@ async def main():
         return
 
     # 启动追踪线程
-    tracking_thread = threading.Thread(target=tracking_loop, daemon=False)  # 非 daemon，确保 cleanup 能执行
+    tracking_thread = threading.Thread(target=tracking_loop, daemon=False, name="tracking_thread")  # 非 daemon，确保 cleanup 能执行
     tracking_thread.start()
 
     # 启动 HTTP 服务器

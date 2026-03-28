@@ -17,15 +17,33 @@ import numpy as np
 NOSE_TIP = 1
 FOREHEAD = 10
 CHIN = 152
+LEFT_EYE = 33
+RIGHT_EYE = 263
 
-# Head Y computation: use forehead-chin difference
-# In normalized coords (Y=0 at top): looking down = forehead rises (Y↓), chin drops (Y↑)
-# forehead - chin: less negative when looking down (chin dropped), more negative when looking up (chin rose)
-# So positive offset = looking down, negative = looking up
+# Head Y computation: use nose position relative to eye level
+# When looking down: nose moves down (Y increases)
+# When looking up: nose moves up (Y decreases)
+# Normalize by face height to make it distance-invariant
 def _compute_head_y(landmarks) -> float:
+    nose_y = landmarks[NOSE_TIP].y
+    left_eye_y = landmarks[LEFT_EYE].y
+    right_eye_y = landmarks[RIGHT_EYE].y
+    eye_level_y = (left_eye_y + right_eye_y) / 2
     forehead_y = landmarks[FOREHEAD].y
     chin_y = landmarks[CHIN].y
-    return forehead_y - chin_y
+
+    # Face height as reference
+    face_height = chin_y - forehead_y
+    if face_height < 0.001:
+        return 0.0
+
+    # Nose position relative to eye level
+    # Positive = nose below eyes (looking down)
+    # Negative = nose above eyes (looking up)
+    nose_offset = nose_y - eye_level_y
+
+    # Normalize by face height
+    return nose_offset / face_height
 
 
 # Key indices for backward compatibility (unused in new formula)

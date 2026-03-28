@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EyeScroll</title>
-  <script type="module" crossorigin src="./assets/index-bFpMmObz.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-C7pXVQO2.css">
+  <script type="module" crossorigin src="./assets/index-BSU9_ObR.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DJfZyOf8.css">
 </head>
 <body>
     <div id="app">
@@ -14,16 +14,8 @@
             <span id="state-text">IDLE</span>
         </header>
 
-        <main id="visualizer">
-            <div id="offset-bar">
-                <div id="offset-marker" class="hidden"></div>
-                <div id="deadzone-indicator"></div>
-            </div>
-            <div id="offset-labels">
-                <span class="label-up">UP</span>
-                <span class="label-neutral">&mdash;</span>
-                <span class="label-down">DOWN</span>
-            </div>
+        <main id="article-frame">
+            <iframe id="test-article" src="test-article.html" tabindex="-1"></iframe>
         </main>
 
         <footer id="control-bar">
@@ -32,7 +24,7 @@
                 <input type="checkbox" id="toggle-enabled" checked>
                 <span class="toggle-slider"></span>
             </label>
-            <button id="btn-settings" class="icon-btn">&#9881;</button>
+            <button id="btn-settings" class="icon-btn" title="Settings">&#9881;</button>
         </footer>
 
         <div id="settings-panel" class="hidden">
