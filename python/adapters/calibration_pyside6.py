@@ -95,12 +95,12 @@ def _calibration_process_main(result_queue: multiprocessing.Queue, duration: flo
                 layout.setSpacing(12)
                 layout.setContentsMargins(24, 20, 24, 16)
 
-                self.title_label = QLabel("HeadScroll")
+                self.title_label = QLabel("HeadScroll 校准")
                 self.title_label.setAlignment(Qt.AlignCenter)
                 self.title_label.setObjectName("title")
                 layout.addWidget(self.title_label)
 
-                self.status_label = QLabel("准备校准...")
+                self.status_label = QLabel("请正视摄像头，保持不动")
                 self.status_label.setAlignment(Qt.AlignCenter)
                 self.status_label.setObjectName("status")
                 layout.addWidget(self.status_label)
@@ -117,7 +117,7 @@ def _calibration_process_main(result_queue: multiprocessing.Queue, duration: flo
                 self.progress_bar.setFixedHeight(6)
                 layout.addWidget(self.progress_bar)
 
-                self.face_status = QLabel("未检测到面部")
+                self.face_status = QLabel("等待面部对准...")
                 self.face_status.setAlignment(Qt.AlignCenter)
                 self.face_status.setObjectName("faceStatus")
                 layout.addWidget(self.face_status)
@@ -206,7 +206,7 @@ def _calibration_process_main(result_queue: multiprocessing.Queue, duration: flo
 
             def _on_countdown(self, value: int) -> None:
                 self.countdown_label.setText(str(value))
-                self.status_label.setText("开始校准...")
+                self.status_label.setText("正视摄像头，保持不动")
                 QApplication.beep()
 
             def _on_complete(self, result: dict) -> None:
@@ -217,7 +217,7 @@ def _calibration_process_main(result_queue: multiprocessing.Queue, duration: flo
                 self.countdown_label.hide()
                 self.cancel_btn.hide()
 
-                self.status_label.setText("校准完成")
+                self.status_label.setText("校准完成！可以开始使用了")
                 self.result_icon.setText("✓")
                 self.result_icon.setStyleSheet("color: #4caf50;")
                 self.result_icon.show()

@@ -252,11 +252,16 @@ class HeadScrollApp(rumps.App):
             self._icon_change_time = now
         else:
             if now - self._icon_change_time > 0.3:
-                new_icon = icon_map.get(raw_state, "👤")
+                # 禁用时显示暂停图标
+                if not state.enabled:
+                    new_icon = "⏸"
+                else:
+                    new_icon = icon_map.get(raw_state, "👤")
                 if self.title != new_icon:
                     self.title = new_icon
 
         if state.head_state:
+            display_state = "已禁用" if not state.enabled else display_state
             self.status_item.title = f"状态: {display_state}"
         else:
             self.status_item.title = "状态: N/A"
