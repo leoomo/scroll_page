@@ -1,13 +1,7 @@
 """
-EyeScroll - Simplified Menu Bar App
-A simple macOS menu bar application for eye-tracking scroll control.
-
-Usage:
-    python simple_main.py          # Start menu bar app
-    python simple_main.py --debug  # Start with HTTP debug server on port 8766
+EyeScroll - 本地菜单栏客户端
+纯本地应用，无网络开销，追求最低延迟
 """
-import argparse
-import asyncio
 import atexit
 import json
 import os
@@ -19,7 +13,14 @@ from pathlib import Path
 
 import rumps
 
-# Add project to path
+# 使用 PyObjC 来正确退出应用
+try:
+    from AppKit import NSApplication
+    HAS_APPKIT = True
+except ImportError:
+    HAS_APPKIT = False
+    print("[Warning] AppKit not available, exit may not work properly")
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from core.camera import Camera
@@ -28,8 +29,7 @@ from core.head_state import HeadStateMachine
 from core.scroll_controller import ScrollController
 from config import config
 from adapters.mac_flash import show_flash
-
-# ==================== Constants ====================
+from adapters.calibration_pyside6 import show_calibration_dialog
 
 APP_NAME = "EyeScroll"
 CALIBRATION_FILE = Path.home() / ".eye_scroll" / "calibration.json"
@@ -48,23 +48,20 @@ class AppState:
         self.face_detected = False
         self.last_action = None
         self._calibrating = False
+        self._camera_lock = threading.Lock()  # 保护摄像头访问
 
 state = AppState()
 
 # ==================== Calibration ====================
 
 def save_calibration():
-    """Save calibration data to file."""
     if state.head_tracker and state.head_tracker.is_calibrated():
         data = {"neutral_y": state.head_tracker.get_neutral_y()}
         CALIBRATION_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(CALIBRATION_FILE, 'w') as f:
             json.dump(data, f, indent=2)
-        return True
-    return False
 
 def load_calibration():
-    """Load calibration data from file."""
     if CALIBRATION_FILE.exists() and state.head_tracker:
         try:
             with open(CALIBRATION_FILE, 'r') as f:
@@ -74,84 +71,60 @@ def load_calibration():
                 state.head_tracker._neutral_y = neutral_y
                 state.head_tracker._calibrated = True
                 state.head_tracker._smooth_offset = 0.0
-                return True
-        except Exception as e:
-            print(f"[Calibration] Failed to load: {e}")
-    return False
+        except Exception:
+            pass
 
-def reset_calibration():
-    """Reset calibration."""
-    if state.head_tracker:
-        state.head_tracker.reset_calibration()
-    if CALIBRATION_FILE.exists():
-        CALIBRATION_FILE.unlink()
-
-# ==================== Initialize ====================
-
-def initialize():
-    """Initialize all modules."""
-    try:
-        state.camera = Camera()
-        state.head_tracker = HeadTracker(
-            confidence_threshold=config.detection_confidence,
-            ema_alpha=config.get("head_ema_alpha", 0.15),
-            down_threshold=config.get("head_down_threshold", 0.025),
-            up_threshold=config.get("head_up_threshold", -0.025),
-        )
-        state.head_state = HeadStateMachine(
-            down_threshold=config.get("head_down_threshold", 0.025),
-            up_threshold=config.get("head_up_threshold", -0.025),
-            deadzone=config.get("head_deadzone", 0.015),
-            dwell_time_ms=config.get("head_dwell_time_ms", 300),
-            continuous_threshold_ms=config.get("head_continuous_threshold_ms", 2000),
-            scroll_interval_ms=config.scroll_interval_ms,
-        )
-        state.scroll_controller = ScrollController(
-            scroll_distance=config.scroll_distance,
-            scroll_interval_ms=config.scroll_interval_ms,
-            up_scroll_distance=config.up_scroll_distance,
-            up_scroll_interval_ms=config.up_scroll_interval_ms,
-        )
-        load_calibration()
-        state.running = True
-        return True
-    except Exception as e:
-        print(f"初始化失败: {e}")
-        return False
-
-# ==================== Tracking Loop ====================
+# ==================== Tracking Loop (高性能主循环) ====================
 
 def tracking_loop():
-    """Main tracking loop running in background thread."""
+    """主追踪循环 - 纯本地，无锁竞争"""
     camera_open = False
     last_action = None
     last_flash_time = 0.0
 
     while state.running:
-        # Check if disabled (but not calibrating)
+        # 暂停时释放摄像头节省资源
         if not state.enabled and not state._calibrating:
             if camera_open:
-                state.camera.release()
+                with state._camera_lock:
+                    if state.camera:
+                        state.camera.release()
+                        state.camera = None
                 camera_open = False
             time.sleep(0.1)
             continue
 
-        # Open camera if needed
+        # 按需打开摄像头
         if not camera_open:
             try:
-                state.camera = Camera()
+                with state._camera_lock:
+                    if not state.running:
+                        break
+                    # 如果 main() 已经创建了 camera，直接使用
+                    if state.camera is None:
+                        state.camera = Camera()
                 camera_open = True
             except Exception:
                 time.sleep(1)
                 continue
 
-        # Read frame
-        frame = state.camera.read()
+        # 读取帧（加锁保护）
+        with state._camera_lock:
+            if not state.running or state.camera is None:
+                break
+            try:
+                frame = state.camera.read()
+            except Exception:
+                frame = None
+
         if frame is None:
             continue
 
-        # Process frame
-        result = state.head_tracker.process(frame)
+        # 处理帧
+        try:
+            result = state.head_tracker.process(frame)
+        except Exception:
+            result = None
 
         if result is None:
             if state.head_tracker and state.head_tracker._calibrating:
@@ -166,17 +139,17 @@ def tracking_loop():
             state.head_offset = offset_y
             state.face_detected = True
 
-            # Update state machine
             action = state.head_state.update(offset_y)
             state.last_action = action
+            # DEBUG: 每次都打印偏移量
+            print(f"[DEBUG] offset_y={offset_y:+.4f} action={action} down_t={state.head_state._down_threshold} up_t={state.head_state._up_threshold}", flush=True)
 
-            # Send scroll events
             if action == "scroll_down":
                 state.scroll_controller.scroll_down()
             elif action == "scroll_up":
                 state.scroll_controller.scroll_up()
 
-            # Flash direction arrow (throttled)
+            # 方向箭头（限速2秒）
             if action and action != last_action:
                 now = time.monotonic()
                 if now - last_flash_time > 2.0:
@@ -189,236 +162,174 @@ def tracking_loop():
             elif not action:
                 last_action = None
 
+        # ~200Hz 循环，无睡眠最大性能
         time.sleep(0.005)
+
+    # 循环退出时释放摄像头
+    if camera_open:
+        with state._camera_lock:
+            if state.camera:
+                try:
+                    state.camera.release()
+                except Exception:
+                    pass
+                state.camera = None
 
 # ==================== Cleanup ====================
 
 def cleanup():
-    """Cleanup all resources."""
-    print("[Cleanup] Starting cleanup...")
+    """清理资源并退出应用"""
+    print("[EyeScroll] 退出...")
     state.running = False
 
-    if state.scroll_controller:
+    # 使用 AppKit 终止应用（在主线程中安全）
+    if HAS_APPKIT:
         try:
-            state.scroll_controller.stop()
-        except Exception:
-            pass
-
-    if state.camera:
-        try:
-            state.camera.release()
-        except Exception:
-            pass
-
-    if state.head_tracker:
-        try:
-            state.head_tracker.close()
-        except Exception:
-            pass
-
-    print("[Cleanup] Cleanup complete")
+            from AppKit import NSApplication
+            app = NSApplication.sharedApplication()
+            app.terminate_(None)
+        except Exception as e:
+            print(f"[EyeScroll] AppKit terminate error: {e}")
 
 # ==================== Menu Bar App ====================
 
 class EyeScrollApp(rumps.App):
     def __init__(self):
-        # Build menu
-        menu_items = [
-            rumps.MenuItem("启用追踪", callback=self.toggle_enabled),
-            None,  # separator
-            rumps.MenuItem("校准", callback=self.calibrate),
-            rumps.MenuItem("重置校准", callback=self.reset_calibration),
+        super().__init__("👁", menu=[
+            rumps.MenuItem("启用"),
+            None,
+            rumps.MenuItem("校准 (3秒)"),
+            rumps.MenuItem("重置校准"),
             None,
             rumps.MenuItem("状态: -"),
             rumps.MenuItem("面部: -"),
             None,
-            rumps.MenuItem("退出", callback=self.quit_app),
-        ]
+            rumps.MenuItem("退出"),
+        ])
 
-        super().__init__(APP_NAME, menu=menu_items)
-
-        # State display items
         self.status_item = self.menu["状态: -"]
         self.face_item = self.menu["面部: -"]
-        self.enable_item = self.menu["启用追踪"]
+        self.enable_item = self.menu["启用"]
 
-        # Start update timer
-        self.updater = rumps.Timer(self._update_state, 0.5)
+        # 状态更新定时器 (2Hz 足够，但退出检查需要更快)
+        self.updater = rumps.Timer(self._update, 0.1)
         self.updater.start()
 
-    def _update_state(self, sender=None):
-        """Periodically update menu bar and state display."""
+    def _update(self, sender=None):
+        # 检查是否需要退出（用于信号处理）
+        if not state.running:
+            print("[EyeScroll] 检测到退出信号，正在关闭...")
+            if HAS_APPKIT:
+                from AppKit import NSApplication
+                app = NSApplication.sharedApplication()
+                app.terminate_(None)
+            else:
+                sys.exit(0)
+            return
+
         if state.head_state:
             self.status_item.title = f"状态: {state.head_state.get_state().upper()}"
         else:
             self.status_item.title = "状态: N/A"
+        self.face_item.title = "面部: 已检测" if state.face_detected else "面部: 未检测"
+        self.enable_item.title = "禁用" if state.enabled else "启用"
 
-        if state.face_detected:
-            self.face_item.title = "面部: 已检测 ✓"
-        else:
-            self.face_item.title = "面部: 未检测 ✗"
-
-        self.enable_item.title = "禁用追踪" if state.enabled else "启用追踪"
-
-    @rumps.clicked("启用追踪")
-    def toggle_enabled(self, sender):
-        """Toggle tracking enabled/disabled."""
+    @rumps.clicked("启用")
+    def toggle(self, sender):
         state.enabled = not state.enabled
         if not state.enabled:
-            if state.scroll_controller:
-                state.scroll_controller.stop()
-            if state.head_state:
-                state.head_state.reset()
+            state.scroll_controller.stop()
+            state.head_state.reset()
             show_flash("OFF")
         else:
             show_flash("ON")
 
-    @rumps.clicked("校准")
+    @rumps.clicked("校准 (3秒)")
     def calibrate(self, sender):
-        """Start calibration."""
         if state.head_tracker:
-            state._calibrating = True
+            # 启动真实校准（head_tracker 在 tracking_loop 的 process() 中采集数据）
             state.head_tracker.start_calibration(3.0)
-            show_flash("校准中...")
+            state._calibrating = True
+            print("[EyeScroll] 开始校准...", flush=True)
 
-            # Wait for calibration to complete in background
-            threading.Thread(target=self._wait_calibration, daemon=True).start()
+            # 显示视觉倒计时对话框（纯 UI，不采集数据）
+            def on_dialog_complete(dialog_result):
+                print(f"[EyeScroll] 校准对话框完成: {dialog_result}", flush=True)
+                state._calibrating = False
+                # 从 head_tracker 获取真实校准数据
+                real_result = state.head_tracker.stop_calibration()
+                if dialog_result.get("success") and real_result.get("success"):
+                    save_calibration()
+                    show_flash(f"校准完成 ({real_result.get('sample_count')} 样本)")
+                else:
+                    error = real_result.get('error', '样本不足')
+                    show_flash(f"校准失败: {error}")
 
-    def _wait_calibration(self):
-        """Wait for calibration to complete."""
-        time.sleep(3.0)
-        if state.head_tracker:
-            result = state.head_tracker.stop_calibration()
-            state._calibrating = False
-            if result.get("success"):
-                save_calibration()
-                show_flash(f"校准完成 ({result.get('sample_count')} 样本)")
-            else:
-                show_flash(f"校准失败")
+            show_calibration_dialog(
+                head_tracker=state.head_tracker,
+                duration=3.0,
+                on_complete=on_dialog_complete
+            )
 
     @rumps.clicked("重置校准")
-    def reset_calibration(self, sender):
-        """Reset calibration."""
-        reset_calibration()
-        show_flash("校准已重置")
+    def reset(self, sender):
+        if state.head_tracker:
+            state.head_tracker.reset_calibration()
+        if CALIBRATION_FILE.exists():
+            CALIBRATION_FILE.unlink()
+        show_flash("已重置")
 
     @rumps.clicked("退出")
-    def quit_app(self, sender):
-        """Quit the application."""
+    def quit(self, sender):
+        print("[EyeScroll] 退出菜单被点击")
         cleanup()
-        rumps.quit()
-
-# ==================== HTTP Debug Server ====================
-
-async def handle_debug_request(reader, writer):
-    """Simple HTTP debug endpoint."""
-    request_line = await reader.readline()
-    if not request_line:
-        writer.close()
-        return
-
-    method, path, _ = request_line.decode().strip().split()
-    print(f"[Debug] {method} {path}", flush=True)
-
-    # Skip headers
-    while True:
-        line = await reader.readline()
-        if line in (b'\r\n', b'\n', b''):
-            break
-
-    try:
-        if path == '/state':
-            data = {
-                'state': state.head_state.get_state() if state.head_state else 'N/A',
-                'face_detected': state.face_detected,
-                'head_offset': state.head_offset,
-                'enabled': state.enabled,
-                'calibrated': state.head_tracker.is_calibrated() if state.head_tracker else False,
-                'last_action': state.last_action,
-            }
-            content = json.dumps(data, indent=2).encode()
-        elif path == '/enable':
-            state.enabled = True
-            show_flash("ON")
-            content = b'{"success": true}'
-        elif path == '/disable':
-            state.enabled = False
-            if state.scroll_controller:
-                state.scroll_controller.stop()
-            if state.head_state:
-                state.head_state.reset()
-            show_flash("OFF")
-            content = b'{"success": true}'
-        elif path == '/calibrate':
-            if state.head_tracker:
-                state._calibrating = True
-                state.head_tracker.start_calibration(3.0)
-            content = b'{"success": true, "status": "calibrating"}'
-        else:
-            content = b'{"error": "not found"}'
-
-        writer.write(b'HTTP/1.1 200 OK\r\n')
-        writer.write(b'Content-Type: application/json\r\n')
-        writer.write(f'Content-Length: {len(content)}\r\n'.encode())
-        writer.write(b'\r\n')
-        writer.write(content)
-    except Exception as e:
-        writer.write(b'HTTP/1.1 500 OK\r\n')
-        writer.write(b'Content-Type: application/json\r\n')
-        writer.write(f'Content-Length: {len(str(e))}\r\n'.encode())
-        writer.write(b'\r\n')
-        writer.write(str(e).encode())
-
-    await writer.drain()
-    writer.close()
-
-def run_debug_server(port=8766):
-    """Run the debug HTTP server in a background thread."""
-    async def serve():
-        server = await asyncio.start_server(handle_debug_request, '127.0.0.1', port)
-        print(f"[Debug] HTTP server started on http://127.0.0.1:{port}", flush=True)
-        async with server:
-            await server.serve_forever()
-
-    asyncio.run(serve())
+        print("[EyeScroll] cleanup 完成，准备退出")
+        sys.exit(0)
 
 # ==================== Main ====================
 
 def main():
-    """Main entry point."""
-    parser = argparse.ArgumentParser(description='EyeScroll - Eye-tracking scroll control')
-    parser.add_argument('--debug', action='store_true', help='Enable HTTP debug server on port 8766')
-    args = parser.parse_args()
-
-    print("EyeScroll 启动中...", flush=True)
-
-    # Initialize
-    if not initialize():
-        print("初始化失败，退出。", flush=True)
+    # 初始化
+    try:
+        state.camera = Camera()
+        state.head_tracker = HeadTracker(
+            confidence_threshold=config.detection_confidence,
+            ema_alpha=config.get("head_ema_alpha"),
+            down_threshold=config.get("head_down_threshold"),
+            up_threshold=config.get("head_up_threshold"),
+        )
+        state.head_state = HeadStateMachine(
+            down_threshold=config.get("head_down_threshold"),
+            up_threshold=config.get("head_up_threshold"),
+            deadzone=config.get("head_deadzone"),
+            dwell_time_ms=config.get("head_dwell_time_ms"),
+            continuous_threshold_ms=config.get("head_continuous_threshold_ms"),
+            scroll_interval_ms=config.scroll_interval_ms,
+        )
+        state.scroll_controller = ScrollController(
+            scroll_distance=config.scroll_distance,
+            scroll_interval_ms=config.scroll_interval_ms,
+            up_scroll_distance=config.up_scroll_distance,
+            up_scroll_interval_ms=config.up_scroll_interval_ms,
+        )
+        load_calibration()
+        state.running = True
+    except Exception as e:
+        print(f"[EyeScroll] 初始化失败: {e}")
         sys.exit(1)
 
-    print("初始化完成!", flush=True)
-
-    # Register cleanup
+    # 信号处理
     atexit.register(cleanup)
     signal.signal(signal.SIGINT, lambda s, f: cleanup() or sys.exit(0))
     signal.signal(signal.SIGTERM, lambda s, f: cleanup() or sys.exit(0))
 
-    # Start debug server if requested
-    if args.debug:
-        debug_thread = threading.Thread(target=run_debug_server, daemon=True)
-        debug_thread.start()
+    # 启动追踪线程
+    t = threading.Thread(target=tracking_loop, daemon=True, name="tracking_thread")
+    t.start()
 
-    # Start tracking thread
-    tracking_thread = threading.Thread(target=tracking_loop, daemon=True)
-    tracking_thread.start()
+    print(f"[EyeScroll] 已启动 (PID: {os.getpid()})")
 
-    print("EyeScroll 已启动!", flush=True)
-    if args.debug:
-        print("调试服务器已启用: http://127.0.0.1:8766", flush=True)
-    print("按 Cmd+Q 或点击菜单栏图标退出。", flush=True)
-
-    # Run menu bar app (this blocks)
+    # 运行菜单栏 (阻塞)
     app = EyeScrollApp()
     app.run()
 

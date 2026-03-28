@@ -39,6 +39,10 @@ class HeadStateMachine:
     def update(self, offset_y: float) -> str | None:
         """Update with current head offset. Returns action or None.
 
+        Sign convention: positive offset = tilting down, negative = tilting up.
+        down_threshold is positive, up_threshold is negative.
+        Deadzone is the neutral band around zero: |offset_y| < deadzone → IDLE.
+
         Returns: 'scroll_down', 'scroll_up', 'continuous_down', 'continuous_up', or None.
         """
         now = time.monotonic()
@@ -61,12 +65,12 @@ class HeadStateMachine:
                 if elapsed_ms >= self._continuous_threshold_ms:
                     self._state = STATE_CONTINUOUS_DOWN
                     self._last_scroll_time = now
-                    return "continuous_down"
+                    return "continuous_up"
                 if elapsed_ms >= self._dwell_time_ms:
                     # Trigger scroll immediately on dwell met (with rate limit)
                     if (now - self._last_scroll_time) * 1000 >= self._scroll_interval_ms:
                         self._last_scroll_time = now
-                        return "scroll_down"
+                        return "scroll_up"
             else:
                 self._state = STATE_IDLE
             return None
@@ -85,11 +89,11 @@ class HeadStateMachine:
                 if elapsed_ms >= self._continuous_threshold_ms:
                     self._state = STATE_CONTINUOUS_UP
                     self._last_scroll_time = now
-                    return "continuous_up"
+                    return "continuous_down"
                 if elapsed_ms >= self._dwell_time_ms:
                     if (now - self._last_scroll_time) * 1000 >= self._scroll_interval_ms:
                         self._last_scroll_time = now
-                        return "scroll_up"
+                        return "scroll_down"
             else:
                 self._state = STATE_IDLE
             return None
@@ -100,7 +104,7 @@ class HeadStateMachine:
                 return None
             if (now - self._last_scroll_time) * 1000 >= self._scroll_interval_ms:
                 self._last_scroll_time = now
-                return "scroll_down"
+                return "scroll_up"
             return None
 
         elif self._state == STATE_CONTINUOUS_UP:
@@ -109,7 +113,7 @@ class HeadStateMachine:
                 return None
             if (now - self._last_scroll_time) * 1000 >= self._scroll_interval_ms:
                 self._last_scroll_time = now
-                return "scroll_up"
+                return "scroll_down"
             return None
 
         return None

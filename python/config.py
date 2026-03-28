@@ -16,11 +16,11 @@ DEFAULT_CONFIG = {
     "up_dwell_time_ms": 800,
     "up_scroll_distance": 30,
     "up_scroll_interval_ms": 200,
-    "head_down_threshold": 0.025,
-    "head_up_threshold": -0.025,
-    "head_deadzone": 0.020,
-    "head_ema_alpha": 0.15,
-    "head_dwell_time_ms": 300,
+    "head_down_threshold": 0.008,
+    "head_up_threshold": -0.008,
+    "head_deadzone": 0.003,
+    "head_ema_alpha": 0.30,
+    "head_dwell_time_ms": 150,
     "head_continuous_threshold_ms": 2000,
 }
 
