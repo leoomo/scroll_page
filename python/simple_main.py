@@ -179,7 +179,7 @@ def tracking_loop():
 
 def cleanup():
     """清理资源并退出应用"""
-    print("[EyeScroll] 退出...")
+    print("[HeadScroll] 退出...")
     state.running = False
 
     # 使用 AppKit 终止应用（在主线程中安全）
@@ -189,13 +189,13 @@ def cleanup():
             app = NSApplication.sharedApplication()
             app.terminate_(None)
         except Exception as e:
-            print(f"[EyeScroll] AppKit terminate error: {e}")
+            print(f"[HeadScroll] AppKit terminate error: {e}")
 
 # ==================== Menu Bar App ====================
 
 class HeadScrollApp(rumps.App):
     def __init__(self):
-        super().__init__("👁", menu=[
+        super().__init__("👤", menu=[
             rumps.MenuItem("启用"),
             None,
             rumps.MenuItem("校准 (3秒)"),
@@ -218,7 +218,7 @@ class HeadScrollApp(rumps.App):
     def _update(self, sender=None):
         # 检查是否需要退出（用于信号处理）
         if not state.running:
-            print("[EyeScroll] 检测到退出信号，正在关闭...")
+            print("[HeadScroll] 检测到退出信号，正在关闭...")
             if HAS_APPKIT:
                 from AppKit import NSApplication
                 app = NSApplication.sharedApplication()
@@ -227,8 +227,37 @@ class HeadScrollApp(rumps.App):
                 sys.exit(0)
             return
 
+        # 状态显示映射：技术术语 → 用户友好中文
+        state_map = {
+            "idle": "待机",
+            "dwelling_down": "低头滚动",
+            "dwelling_up": "抬头滚动",
+            "continuous_down": "↓ 向下滚动",
+            "continuous_up": "↑ 向上滚动",
+        }
+        # 滚动时的图标映射
+        icon_map = {
+            "continuous_down": "👤 ↓",
+            "continuous_up": "👤 ↑",
+            "dwelling_down": "👤 ↓",
+            "dwelling_up": "👤 ↑",
+        }
+        raw_state = state.head_state.get_state() if state.head_state else "idle"
+        display_state = state_map.get(raw_state, raw_state)
+
+        # 防抖：只有状态稳定超过 0.3 秒才改变图标，避免闪烁
+        now = time.monotonic()
+        if not hasattr(self, '_last_icon_state') or self._last_icon_state != raw_state:
+            self._last_icon_state = raw_state
+            self._icon_change_time = now
+        else:
+            if now - self._icon_change_time > 0.3:
+                new_icon = icon_map.get(raw_state, "👤")
+                if self.title != new_icon:
+                    self.title = new_icon
+
         if state.head_state:
-            self.status_item.title = f"状态: {state.head_state.get_state().upper()}"
+            self.status_item.title = f"状态: {display_state}"
         else:
             self.status_item.title = "状态: N/A"
         self.face_item.title = "面部: 已检测" if state.face_detected else "面部: 未检测"
@@ -250,11 +279,11 @@ class HeadScrollApp(rumps.App):
             # 启动真实校准（head_tracker 在 tracking_loop 的 process() 中采集数据）
             state.head_tracker.start_calibration(3.0)
             state._calibrating = True
-            print("[EyeScroll] 开始校准...", flush=True)
+            print("[HeadScroll] 开始校准...", flush=True)
 
             # 显示视觉倒计时对话框（纯 UI，不采集数据）
             def on_dialog_complete(dialog_result):
-                print(f"[EyeScroll] 校准对话框完成: {dialog_result}", flush=True)
+                print(f"[HeadScroll] 校准对话框完成: {dialog_result}", flush=True)
                 state._calibrating = False
                 # 从 head_tracker 获取真实校准数据
                 real_result = state.head_tracker.stop_calibration()
@@ -281,9 +310,9 @@ class HeadScrollApp(rumps.App):
 
     @rumps.clicked("退出")
     def quit(self, sender):
-        print("[EyeScroll] 退出菜单被点击")
+        print("[HeadScroll] 退出菜单被点击")
         cleanup()
-        print("[EyeScroll] cleanup 完成，准备退出")
+        print("[HeadScroll] cleanup 完成，准备退出")
         sys.exit(0)
 
 # ==================== Main ====================
@@ -315,7 +344,7 @@ def main():
         load_calibration()
         state.running = True
     except Exception as e:
-        print(f"[EyeScroll] 初始化失败: {e}")
+        print(f"[HeadScroll] 初始化失败: {e}")
         sys.exit(1)
 
     # 信号处理
@@ -327,7 +356,7 @@ def main():
     t = threading.Thread(target=tracking_loop, daemon=True, name="tracking_thread")
     t.start()
 
-    print(f"[EyeScroll] 已启动 (PID: {os.getpid()})")
+    print(f"[HeadScroll] 已启动 (PID: {os.getpid()})")
 
     # 运行菜单栏 (阻塞)
     app = HeadScrollApp()
