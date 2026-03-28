@@ -1,7 +1,7 @@
 [project]
-name = "eye-scroll"
+name = "headscroll"
 version = "0.1.0"
-description = "EyeScroll - 眼球追踪滚动应用 macOS 菜单栏工具"
+description = "HeadScroll - macOS 免手滚动应用，通过头部姿态控制页面滚动"
 requires-python = ">=3.11"
 dependencies = [
     "mediapipe>=0.10.0",
@@ -15,4 +15,4 @@ dependencies = [
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-eye-scroll = "main:main"
+headscroll = "main:main"
