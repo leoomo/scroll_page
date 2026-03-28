@@ -62,17 +62,18 @@ def save_calibration():
             json.dump(data, f, indent=2)
 
 def load_calibration():
-    if CALIBRATION_FILE.exists() and state.head_tracker:
-        try:
-            with open(CALIBRATION_FILE, 'r') as f:
-                data = json.load(f)
-            neutral_y = data.get("neutral_y")
-            if neutral_y is not None:
-                state.head_tracker._neutral_y = neutral_y
-                state.head_tracker._calibrated = True
-                state.head_tracker._smooth_offset = 0.0
-        except Exception:
-            pass
+    if not state.head_tracker:
+        return
+    try:
+        with open(CALIBRATION_FILE, 'r') as f:
+            data = json.load(f)
+        neutral_y = data.get("neutral_y")
+        if neutral_y is not None:
+            state.head_tracker._neutral_y = neutral_y
+            state.head_tracker._calibrated = True
+            state.head_tracker._smooth_offset = 0.0
+    except Exception:
+        pass
 
 # ==================== Tracking Loop (高性能主循环) ====================
 
@@ -141,8 +142,6 @@ def tracking_loop():
 
             action = state.head_state.update(offset_y)
             state.last_action = action
-            # DEBUG: 每次都打印偏移量
-            print(f"[DEBUG] offset_y={offset_y:+.4f} action={action} down_t={state.head_state._down_threshold} up_t={state.head_state._up_threshold}", flush=True)
 
             if action == "scroll_down":
                 state.scroll_controller.scroll_down()

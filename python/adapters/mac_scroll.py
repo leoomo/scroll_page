@@ -2,10 +2,13 @@
 macOS 滚动适配器
 使用 PyObjC 调用 macOS Accessibility API 发送滚动事件
 """
+import logging
 import time
 from Quartz import (
     CGEventCreateScrollWheelEvent, CGEventPost, kCGHIDEventTap,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class MacScrollController:
@@ -38,12 +41,12 @@ class MacScrollController:
             )
             if event:
                 CGEventPost(kCGHIDEventTap, event)
-                print(f"[SCROLL] CGEvent posted: delta={delta}", flush=True)
+                logger.debug("CGEvent posted: delta=%d", delta)
             else:
-                print(f"[SCROLL] CGEvent creation FAILED: delta={delta}", flush=True)
+                logger.warning("CGEvent creation FAILED: delta=%d", delta)
             return True
         except Exception as e:
-            print(f"[SCROLL] Exception: {e}", flush=True)
+            logger.error("Scroll event failed: %s", e)
             return False
 
     def scroll_down(self) -> bool:

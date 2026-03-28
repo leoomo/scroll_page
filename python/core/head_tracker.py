@@ -46,9 +46,6 @@ def _compute_head_y(landmarks) -> float:
     return nose_offset / face_height
 
 
-# Key indices for backward compatibility (unused in new formula)
-KEY_INDICES = [NOSE_TIP, FOREHEAD]
-
 # Default model path
 MODEL_PATH = Path(__file__).parent.parent / ".models" / "face_landmarker.task"
 
